@@ -1,5 +1,7 @@
 #include "fighter_renderer.h"
 
+#include <ctype.h>
+#include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -29,6 +31,18 @@ const char *fighter_renderer_menu_frame_path(int frame_index) {
 }
 
 #ifdef __linux__
+static const char *fighter_renderer_menu_frame_ppm_path(int frame_index) {
+  static const char *const k_menu_frames[2] = {
+      "../game_assets/ui/menu/menu_frame_0.ppm",
+      "../game_assets/ui/menu/menu_frame_1.ppm",
+  };
+
+  if ((frame_index & 1) == 0) {
+    return k_menu_frames[0];
+  }
+  return k_menu_frames[1];
+}
+
 typedef struct {
   char ch;
   unsigned char rows[7];
@@ -210,6 +224,168 @@ static void fighter_fb_draw_centered_text(fighter_renderer_t *renderer,
   fighter_fb_draw_text(renderer, center_x - width / 2, y, text, scale, color);
 }
 
+static void fighter_rgb_image_reset(fighter_rgb_image_t *image) {
+  if (!image) {
+    return;
+  }
+
+  free(image->pixels);
+  image->pixels = NULL;
+  image->width = 0;
+  image->height = 0;
+}
+
+static int fighter_ppm_read_token(FILE *stream, char *buffer, size_t buffer_size) {
+  int ch;
+  size_t length;
+
+  if (!stream || !buffer || buffer_size == 0) {
+    return -1;
+  }
+
+  ch = fgetc(stream);
+  while (ch != EOF) {
+    if (isspace((unsigned char)ch)) {
+      ch = fgetc(stream);
+      continue;
+    }
+    if (ch == '#') {
+      do {
+        ch = fgetc(stream);
+      } while (ch != EOF && ch != '\n');
+      ch = fgetc(stream);
+      continue;
+    }
+    break;
+  }
+
+  if (ch == EOF) {
+    return -1;
+  }
+
+  length = 0;
+  while (ch != EOF && !isspace((unsigned char)ch) && ch != '#') {
+    if (length + 1 >= buffer_size) {
+      return -1;
+    }
+    buffer[length++] = (char)ch;
+    ch = fgetc(stream);
+  }
+  buffer[length] = '\0';
+
+  if (ch == '#') {
+    do {
+      ch = fgetc(stream);
+    } while (ch != EOF && ch != '\n');
+  }
+
+  return length == 0 ? -1 : 0;
+}
+
+static int fighter_rgb_image_load_ppm(fighter_rgb_image_t *image, const char *path) {
+  FILE *stream;
+  char token[32];
+  int width;
+  int height;
+  int max_value;
+  size_t pixel_count;
+  unsigned char *pixels;
+
+  if (!image || !path) {
+    return -1;
+  }
+
+  stream = fopen(path, "rb");
+  if (!stream) {
+    return -1;
+  }
+
+  if (fighter_ppm_read_token(stream, token, sizeof(token)) != 0 ||
+      strcmp(token, "P6") != 0 ||
+      fighter_ppm_read_token(stream, token, sizeof(token)) != 0) {
+    fclose(stream);
+    return -1;
+  }
+  width = atoi(token);
+  if (fighter_ppm_read_token(stream, token, sizeof(token)) != 0) {
+    fclose(stream);
+    return -1;
+  }
+  height = atoi(token);
+  if (fighter_ppm_read_token(stream, token, sizeof(token)) != 0) {
+    fclose(stream);
+    return -1;
+  }
+  max_value = atoi(token);
+
+  if (width <= 0 || height <= 0 || max_value != 255) {
+    fclose(stream);
+    return -1;
+  }
+
+  pixel_count = (size_t)width * (size_t)height * 3U;
+  pixels = (unsigned char *)malloc(pixel_count);
+  if (!pixels) {
+    fclose(stream);
+    return -1;
+  }
+
+  if (fread(pixels, 1, pixel_count, stream) != pixel_count) {
+    free(pixels);
+    fclose(stream);
+    return -1;
+  }
+
+  fclose(stream);
+  fighter_rgb_image_reset(image);
+  image->width = width;
+  image->height = height;
+  image->pixels = pixels;
+  return 0;
+}
+
+static void fighter_fb_draw_rgb_image_fit(fighter_renderer_t *renderer,
+                                          const fighter_rgb_image_t *image) {
+  int draw_width;
+  int draw_height;
+  int draw_x;
+  int draw_y;
+  int y;
+
+  if (!renderer || !image || !image->pixels || image->width <= 0 || image->height <= 0) {
+    return;
+  }
+
+  draw_width = renderer->fb_width;
+  draw_height = (int)(((long long)draw_width * image->height) / image->width);
+  if (draw_height > renderer->fb_height) {
+    draw_height = renderer->fb_height;
+    draw_width = (int)(((long long)draw_height * image->width) / image->height);
+  }
+  if (draw_width <= 0 || draw_height <= 0) {
+    return;
+  }
+
+  draw_x = (renderer->fb_width - draw_width) / 2;
+  draw_y = (renderer->fb_height - draw_height) / 2;
+  fighter_fb_fill_rect(renderer, 0, 0, renderer->fb_width, renderer->fb_height,
+                       fighter_fb_color(renderer, 0, 0, 0));
+
+  for (y = 0; y < draw_height; ++y) {
+    int src_y = (int)(((long long)y * image->height) / draw_height);
+    const unsigned char *src_row = image->pixels + (size_t)src_y * (size_t)image->width * 3U;
+    int x;
+
+    for (x = 0; x < draw_width; ++x) {
+      int src_x = (int)(((long long)x * image->width) / draw_width);
+      const unsigned char *src_pixel = src_row + (size_t)src_x * 3U;
+      fighter_fb_put_pixel(renderer, draw_x + x, draw_y + y,
+                           fighter_fb_color(renderer, src_pixel[0], src_pixel[1],
+                                            src_pixel[2]));
+    }
+  }
+}
+
 static int fighter_scale_axis(int value, int actual, int design) {
   if (design <= 0 || actual <= 0) {
     return value;
@@ -387,10 +563,12 @@ static void fighter_renderer_draw_playfield_fb(fighter_renderer_t *renderer,
 
 static void fighter_renderer_draw_menu_fb(fighter_renderer_t *renderer,
                                           const fighter_game_t *game) {
+  const fighter_rgb_image_t *menu_image;
   unsigned int bg_primary;
   unsigned int bg_secondary;
   unsigned int box_color;
   unsigned int text_color;
+  int frame_index;
   int stripe_offset;
   int box_x;
   int box_y;
@@ -403,6 +581,16 @@ static void fighter_renderer_draw_menu_fb(fighter_renderer_t *renderer,
   int stripe_step;
   int stripe_width;
   int i;
+
+  frame_index = fighter_game_menu_animation_frame(game);
+  menu_image = &renderer->menu_frames[frame_index & 1];
+  if (!menu_image->pixels) {
+    menu_image = &renderer->menu_frames[0];
+  }
+  if (menu_image->pixels) {
+    fighter_fb_draw_rgb_image_fit(renderer, menu_image);
+    return;
+  }
 
   bg_primary = fighter_game_menu_animation_frame(game)
                    ? fighter_fb_color(renderer, 24, 69, 110)
@@ -546,6 +734,7 @@ int fighter_renderer_init(fighter_renderer_t *renderer,
 #ifdef __linux__
   renderer->fb_fd = -1;
   if (local_options.prefer_framebuffer) {
+    int i;
     struct fb_fix_screeninfo fix_info;
     struct fb_var_screeninfo var_info;
     const char *fb_path = local_options.framebuffer_path
@@ -567,6 +756,10 @@ int fighter_renderer_init(fighter_renderer_t *renderer,
                renderer->fb_fd, 0);
       if (renderer->fb_data != MAP_FAILED) {
         renderer->backend = FIGHTER_RENDERER_BACKEND_FRAMEBUFFER;
+        for (i = 0; i < 2; ++i) {
+          (void)fighter_rgb_image_load_ppm(&renderer->menu_frames[i],
+                                           fighter_renderer_menu_frame_ppm_path(i));
+        }
       } else {
         renderer->fb_data = NULL;
         close(renderer->fb_fd);
@@ -588,6 +781,9 @@ void fighter_renderer_close(fighter_renderer_t *renderer) {
   }
 
 #ifdef __linux__
+  for (i = 0; i < 2; ++i) {
+    fighter_rgb_image_reset(&renderer->menu_frames[i]);
+  }
   if (renderer->fb_data) {
     munmap(renderer->fb_data, renderer->fb_data_length);
   }

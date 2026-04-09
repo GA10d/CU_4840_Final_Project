@@ -92,7 +92,10 @@
 - [menu_frame_0.png](/Users/guozhewen/Documents/GitHub/CU_4840_Final_Project/game_assets/ui/menu/menu_frame_0.png)
 - [menu_frame_1.png](/Users/guozhewen/Documents/GitHub/CU_4840_Final_Project/game_assets/ui/menu/menu_frame_1.png)
 
-[fighter_renderer.c](/Users/guozhewen/Documents/GitHub/CU_4840_Final_Project/sw/render_if/fighter_renderer.c) 里已经把这两个实际路径登记成菜单动画帧路径；当前渲染仍然使用程序生成的占位菜单，如果你们下一步要把 PNG 真正 blit 到 framebuffer 或搬进 FPGA 图像 ROM，就直接用这两个路径即可。
+[fighter_renderer.c](/Users/guozhewen/Documents/GitHub/CU_4840_Final_Project/sw/render_if/fighter_renderer.c) 现在会在 framebuffer 模式下按比例完整显示这两张菜单图，并随菜单动画帧在两张图之间切换。为了避免目标板依赖 PNG 解码器，仓库里同时保留了运行时读取的 PPM 缓存：
+
+- [menu_frame_0.ppm](/Users/guozhewen/Documents/GitHub/CU_4840_Final_Project/game_assets/ui/menu/menu_frame_0.ppm)
+- [menu_frame_1.ppm](/Users/guozhewen/Documents/GitHub/CU_4840_Final_Project/game_assets/ui/menu/menu_frame_1.ppm)
 
 建议后续资源都按下面的目录继续扩：
 

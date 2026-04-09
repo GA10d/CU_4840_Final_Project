@@ -13,6 +13,14 @@ typedef struct {
   const char *framebuffer_path;
 } fighter_renderer_options_t;
 
+#ifdef __linux__
+typedef struct {
+  int width;
+  int height;
+  unsigned char *pixels;
+} fighter_rgb_image_t;
+#endif
+
 typedef struct {
   int backend;
   int console_interval_frames;
@@ -26,6 +34,7 @@ typedef struct {
   int fb_bpp;
   unsigned char *fb_data;
   unsigned long fb_data_length;
+  fighter_rgb_image_t menu_frames[2];
 #endif
 } fighter_renderer_t;
 

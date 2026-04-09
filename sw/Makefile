@@ -1,5 +1,8 @@
 CC ?= gcc
 PKG_CONFIG ?= pkg-config
+UNAME_S := $(shell uname -s 2>/dev/null || echo unknown)
+UNAME_M := $(shell uname -m 2>/dev/null || echo unknown)
+BUILD_SIGNATURE_FILE := .build_signature
 
 HAVE_LIBUSB := $(shell command -v $(PKG_CONFIG) >/dev/null 2>&1 && \
 	$(PKG_CONFIG) --exists libusb-1.0 && echo 1 || echo 0)
@@ -42,9 +45,24 @@ PHASE1_USB_OBJS := input/usb_hid_keyboard.o
 USB_TARGETS := $(INPUT_DEMO_TARGET)
 endif
 
-.PHONY: all clean
+.PHONY: all clean rebuild
 
 all: $(PHASE1_TARGET) $(TEST_TARGET) $(USB_TARGETS)
+
+$(BUILD_SIGNATURE_FILE): Makefile
+	@printf '%s\n' \
+		'CC=$(CC)' \
+		'CFLAGS=$(CFLAGS)' \
+		'UNAME_S=$(UNAME_S)' \
+		'UNAME_M=$(UNAME_M)' > $@.tmp
+	@if ! test -f $@ || ! cmp -s $@.tmp $@; then \
+		mv $@.tmp $@; \
+	else \
+		rm -f $@.tmp; \
+	fi
+
+%.o: %.c Makefile $(BUILD_SIGNATURE_FILE)
+	$(CC) $(CFLAGS) -c -o $@ $<
 
 $(PHASE1_TARGET): $(COMMON_OBJS) main_phase1_demo.o $(PHASE1_USB_OBJS)
 	$(CC) $(CFLAGS) -o $@ $^ $(USB_LDLIBS)
@@ -57,4 +75,7 @@ $(INPUT_DEMO_TARGET): $(INPUT_DEMO_OBJS)
 
 clean:
 	rm -f $(PHASE1_TARGET) $(TEST_TARGET) $(INPUT_DEMO_TARGET) \
-		$(PHASE1_OBJS) $(TEST_OBJS) $(INPUT_DEMO_OBJS)
+		$(PHASE1_OBJS) $(TEST_OBJS) $(INPUT_DEMO_OBJS) \
+		$(BUILD_SIGNATURE_FILE)
+
+rebuild: clean all
