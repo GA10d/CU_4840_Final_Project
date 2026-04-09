@@ -19,6 +19,14 @@ typedef struct {
   int height;
   unsigned char *pixels;
 } fighter_rgb_image_t;
+
+typedef struct {
+  int width;
+  int height;
+  int stride;
+  unsigned long data_length;
+  unsigned char *pixels;
+} fighter_fb_image_t;
 #endif
 
 typedef struct {
@@ -34,7 +42,10 @@ typedef struct {
   int fb_bpp;
   unsigned char *fb_data;
   unsigned long fb_data_length;
+  unsigned char *fb_backbuffer;
+  unsigned long fb_backbuffer_length;
   fighter_rgb_image_t menu_frames[2];
+  fighter_fb_image_t menu_frame_cache[2];
 #endif
 } fighter_renderer_t;
 

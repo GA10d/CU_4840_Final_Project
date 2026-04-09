@@ -132,6 +132,39 @@ static unsigned int fighter_fb_color(const fighter_renderer_t *renderer,
          (unsigned int)blue;
 }
 
+static unsigned char *fighter_fb_target_data(fighter_renderer_t *renderer) {
+  if (!renderer) {
+    return NULL;
+  }
+  if (renderer->fb_backbuffer) {
+    return renderer->fb_backbuffer;
+  }
+  return renderer->fb_data;
+}
+
+static void fighter_fb_store_color(const fighter_renderer_t *renderer,
+                                   unsigned char *dst,
+                                   unsigned int color) {
+  if (!renderer || !dst) {
+    return;
+  }
+
+  if (renderer->fb_bpp == 16) {
+    ((unsigned short *)dst)[0] = (unsigned short)color;
+  } else {
+    ((unsigned int *)dst)[0] = color;
+  }
+}
+
+static void fighter_fb_present(fighter_renderer_t *renderer) {
+  if (!renderer || !renderer->fb_data || !renderer->fb_backbuffer ||
+      renderer->fb_backbuffer_length != renderer->fb_data_length) {
+    return;
+  }
+
+  memcpy(renderer->fb_data, renderer->fb_backbuffer, renderer->fb_data_length);
+}
+
 static void fighter_fb_put_pixel(fighter_renderer_t *renderer,
                                  int x,
                                  int y,
@@ -145,12 +178,8 @@ static void fighter_fb_put_pixel(fighter_renderer_t *renderer,
     return;
   }
 
-  row = renderer->fb_data + y * renderer->fb_stride;
-  if (renderer->fb_bpp == 16) {
-    ((unsigned short *)row)[x] = (unsigned short)color;
-  } else {
-    ((unsigned int *)row)[x] = color;
-  }
+  row = fighter_fb_target_data(renderer) + y * renderer->fb_stride;
+  fighter_fb_store_color(renderer, row + x * (renderer->fb_bpp / 8), color);
 }
 
 static void fighter_fb_fill_rect(fighter_renderer_t *renderer,
@@ -159,16 +188,49 @@ static void fighter_fb_fill_rect(fighter_renderer_t *renderer,
                                  int width,
                                  int height,
                                  unsigned int color) {
+  unsigned char *base;
+  int bytes_per_pixel;
   int yy;
   int xx;
 
+  if (!renderer || !fighter_fb_target_data(renderer) || width <= 0 || height <= 0) {
+    return;
+  }
+  if (x < 0) {
+    width += x;
+    x = 0;
+  }
+  if (y < 0) {
+    height += y;
+    y = 0;
+  }
+  if (x + width > renderer->fb_width) {
+    width = renderer->fb_width - x;
+  }
+  if (y + height > renderer->fb_height) {
+    height = renderer->fb_height - y;
+  }
   if (width <= 0 || height <= 0) {
     return;
   }
 
+  base = fighter_fb_target_data(renderer);
+  bytes_per_pixel = renderer->fb_bpp / 8;
+
   for (yy = 0; yy < height; ++yy) {
-    for (xx = 0; xx < width; ++xx) {
-      fighter_fb_put_pixel(renderer, x + xx, y + yy, color);
+    unsigned char *dst = base + (y + yy) * renderer->fb_stride + x * bytes_per_pixel;
+
+    if (renderer->fb_bpp == 16) {
+      unsigned short *row = (unsigned short *)dst;
+      unsigned short pixel = (unsigned short)color;
+      for (xx = 0; xx < width; ++xx) {
+        row[xx] = pixel;
+      }
+    } else {
+      unsigned int *row = (unsigned int *)dst;
+      for (xx = 0; xx < width; ++xx) {
+        row[xx] = color;
+      }
     }
   }
 }
@@ -233,6 +295,19 @@ static void fighter_rgb_image_reset(fighter_rgb_image_t *image) {
   image->pixels = NULL;
   image->width = 0;
   image->height = 0;
+}
+
+static void fighter_fb_image_reset(fighter_fb_image_t *image) {
+  if (!image) {
+    return;
+  }
+
+  free(image->pixels);
+  image->pixels = NULL;
+  image->width = 0;
+  image->height = 0;
+  image->stride = 0;
+  image->data_length = 0;
 }
 
 static int fighter_ppm_read_token(FILE *stream, char *buffer, size_t buffer_size) {
@@ -384,6 +459,87 @@ static void fighter_fb_draw_rgb_image_fit(fighter_renderer_t *renderer,
                                             src_pixel[2]));
     }
   }
+}
+
+static int fighter_fb_image_build_scaled(fighter_renderer_t *renderer,
+                                         const fighter_rgb_image_t *source,
+                                         fighter_fb_image_t *scaled) {
+  int draw_width;
+  int draw_height;
+  int draw_x;
+  int draw_y;
+  int bytes_per_pixel;
+  int y;
+
+  if (!renderer || !source || !source->pixels || !scaled || renderer->fb_width <= 0 ||
+      renderer->fb_height <= 0 || renderer->fb_stride <= 0) {
+    return -1;
+  }
+
+  bytes_per_pixel = renderer->fb_bpp / 8;
+  if (bytes_per_pixel <= 0) {
+    return -1;
+  }
+
+  scaled->data_length = (unsigned long)(renderer->fb_stride * renderer->fb_height);
+  scaled->pixels = (unsigned char *)malloc(scaled->data_length);
+  if (!scaled->pixels) {
+    fighter_fb_image_reset(scaled);
+    return -1;
+  }
+
+  scaled->width = renderer->fb_width;
+  scaled->height = renderer->fb_height;
+  scaled->stride = renderer->fb_stride;
+  memset(scaled->pixels, 0, scaled->data_length);
+
+  draw_width = renderer->fb_width;
+  draw_height = (int)(((long long)draw_width * source->height) / source->width);
+  if (draw_height > renderer->fb_height) {
+    draw_height = renderer->fb_height;
+    draw_width = (int)(((long long)draw_height * source->width) / source->height);
+  }
+  if (draw_width <= 0 || draw_height <= 0) {
+    fighter_fb_image_reset(scaled);
+    return -1;
+  }
+
+  draw_x = (renderer->fb_width - draw_width) / 2;
+  draw_y = (renderer->fb_height - draw_height) / 2;
+  for (y = 0; y < draw_height; ++y) {
+    int src_y = (int)(((long long)y * source->height) / draw_height);
+    const unsigned char *src_row =
+        source->pixels + (size_t)src_y * (size_t)source->width * 3U;
+    unsigned char *dst_row =
+        scaled->pixels + (draw_y + y) * scaled->stride + draw_x * bytes_per_pixel;
+    int x;
+
+    for (x = 0; x < draw_width; ++x) {
+      int src_x = (int)(((long long)x * source->width) / draw_width);
+      const unsigned char *src_pixel = src_row + (size_t)src_x * 3U;
+      unsigned int packed =
+          fighter_fb_color(renderer, src_pixel[0], src_pixel[1], src_pixel[2]);
+      fighter_fb_store_color(renderer, dst_row + x * bytes_per_pixel, packed);
+    }
+  }
+
+  return 0;
+}
+
+static void fighter_fb_draw_cached_image(fighter_renderer_t *renderer,
+                                         const fighter_fb_image_t *image) {
+  unsigned char *target;
+
+  if (!renderer || !image || !image->pixels || image->data_length == 0) {
+    return;
+  }
+
+  target = fighter_fb_target_data(renderer);
+  if (!target || image->data_length != (unsigned long)(renderer->fb_stride * renderer->fb_height)) {
+    return;
+  }
+
+  memcpy(target, image->pixels, image->data_length);
 }
 
 static int fighter_scale_axis(int value, int actual, int design) {
@@ -563,6 +719,7 @@ static void fighter_renderer_draw_playfield_fb(fighter_renderer_t *renderer,
 
 static void fighter_renderer_draw_menu_fb(fighter_renderer_t *renderer,
                                           const fighter_game_t *game) {
+  const fighter_fb_image_t *cached_image;
   const fighter_rgb_image_t *menu_image;
   unsigned int bg_primary;
   unsigned int bg_secondary;
@@ -583,6 +740,15 @@ static void fighter_renderer_draw_menu_fb(fighter_renderer_t *renderer,
   int i;
 
   frame_index = fighter_game_menu_animation_frame(game);
+  cached_image = &renderer->menu_frame_cache[frame_index & 1];
+  if (!cached_image->pixels) {
+    cached_image = &renderer->menu_frame_cache[0];
+  }
+  if (cached_image->pixels) {
+    fighter_fb_draw_cached_image(renderer, cached_image);
+    return;
+  }
+
   menu_image = &renderer->menu_frames[frame_index & 1];
   if (!menu_image->pixels) {
     menu_image = &renderer->menu_frames[0];
@@ -755,10 +921,21 @@ int fighter_renderer_init(fighter_renderer_t *renderer,
           mmap(NULL, renderer->fb_data_length, PROT_READ | PROT_WRITE, MAP_SHARED,
                renderer->fb_fd, 0);
       if (renderer->fb_data != MAP_FAILED) {
+        renderer->fb_backbuffer = (unsigned char *)malloc(renderer->fb_data_length);
+        renderer->fb_backbuffer_length = renderer->fb_data_length;
+        if (renderer->fb_backbuffer) {
+          memset(renderer->fb_backbuffer, 0, renderer->fb_backbuffer_length);
+        } else {
+          renderer->fb_backbuffer_length = 0;
+        }
         renderer->backend = FIGHTER_RENDERER_BACKEND_FRAMEBUFFER;
         for (i = 0; i < 2; ++i) {
           (void)fighter_rgb_image_load_ppm(&renderer->menu_frames[i],
                                            fighter_renderer_menu_frame_ppm_path(i));
+          if (renderer->menu_frames[i].pixels) {
+            (void)fighter_fb_image_build_scaled(renderer, &renderer->menu_frames[i],
+                                                &renderer->menu_frame_cache[i]);
+          }
         }
       } else {
         renderer->fb_data = NULL;
@@ -781,9 +958,15 @@ void fighter_renderer_close(fighter_renderer_t *renderer) {
   }
 
 #ifdef __linux__
+  int i;
+
   for (i = 0; i < 2; ++i) {
     fighter_rgb_image_reset(&renderer->menu_frames[i]);
+    fighter_fb_image_reset(&renderer->menu_frame_cache[i]);
   }
+  free(renderer->fb_backbuffer);
+  renderer->fb_backbuffer = NULL;
+  renderer->fb_backbuffer_length = 0;
   if (renderer->fb_data) {
     munmap(renderer->fb_data, renderer->fb_data_length);
   }
@@ -813,6 +996,7 @@ void fighter_renderer_draw(fighter_renderer_t *renderer, const fighter_game_t *g
       default:
         break;
     }
+    fighter_fb_present(renderer);
     return;
   }
 #endif

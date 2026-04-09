@@ -4,6 +4,7 @@
 #include "fighter_renderer.h"
 
 #include <signal.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -30,11 +31,30 @@ static void fighter_on_signal(int signal_number) {
   g_running = 0;
 }
 
-static void fighter_sleep_one_frame(void) {
+static int64_t fighter_now_ns(void) {
+  struct timespec now;
+
+  if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) {
+    return 0;
+  }
+
+  return (int64_t)now.tv_sec * 1000000000LL + (int64_t)now.tv_nsec;
+}
+
+static void fighter_sleep_to_target_frame(int64_t frame_start_ns) {
+  const int64_t k_target_frame_ns = 16666667LL;
+  int64_t elapsed_ns;
+  int64_t remaining_ns;
   struct timespec delay;
 
-  delay.tv_sec = 0;
-  delay.tv_nsec = 16666667L;
+  elapsed_ns = fighter_now_ns() - frame_start_ns;
+  remaining_ns = k_target_frame_ns - elapsed_ns;
+  if (remaining_ns <= 0) {
+    return;
+  }
+
+  delay.tv_sec = (time_t)(remaining_ns / 1000000000LL);
+  delay.tv_nsec = (long)(remaining_ns % 1000000000LL);
   nanosleep(&delay, NULL);
 }
 
@@ -204,8 +224,10 @@ int main(int argc, char **argv) {
 
   frame_index = 0;
   while (g_running && (max_frames < 0 || frame_index < max_frames)) {
+    int64_t frame_start_ns;
     usb_hid_keyboard_report_t reports[FIGHTER_PLAYER_COUNT];
 
+    frame_start_ns = fighter_now_ns();
     for (i = 0; i < FIGHTER_PLAYER_COUNT; ++i) {
       usb_hid_keyboard_report_clear(&reports[i]);
       memset(&inputs[i], 0, sizeof(inputs[i]));
@@ -233,7 +255,7 @@ int main(int argc, char **argv) {
 
     if (realtime ||
         strcmp(fighter_renderer_backend_name(&renderer), "framebuffer") == 0) {
-      fighter_sleep_one_frame();
+      fighter_sleep_to_target_frame(frame_start_ns);
     }
 
     ++frame_index;
