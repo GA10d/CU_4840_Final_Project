@@ -210,6 +210,38 @@ static void fighter_fb_draw_centered_text(fighter_renderer_t *renderer,
   fighter_fb_draw_text(renderer, center_x - width / 2, y, text, scale, color);
 }
 
+static int fighter_scale_axis(int value, int actual, int design) {
+  if (design <= 0 || actual <= 0) {
+    return value;
+  }
+
+  return (value * actual + design / 2) / design;
+}
+
+static int fighter_scale_size_axis(int value, int actual, int design) {
+  int scaled;
+
+  scaled = fighter_scale_axis(value, actual, design);
+  if (value > 0 && scaled < 1) {
+    return 1;
+  }
+  return scaled;
+}
+
+static int fighter_scale_text_size(const fighter_renderer_t *renderer, int design_scale) {
+  int width_scaled;
+  int height_scaled;
+  int scaled;
+
+  width_scaled = fighter_scale_size_axis(design_scale, renderer->fb_width, 640);
+  height_scaled = fighter_scale_size_axis(design_scale, renderer->fb_height, 480);
+  scaled = width_scaled < height_scaled ? width_scaled : height_scaled;
+  if (scaled < 1) {
+    scaled = 1;
+  }
+  return scaled;
+}
+
 static void fighter_renderer_draw_playfield_fb(fighter_renderer_t *renderer,
                                                const fighter_game_t *game,
                                                int overlay) {
@@ -223,7 +255,20 @@ static void fighter_renderer_draw_playfield_fb(fighter_renderer_t *renderer,
   unsigned int bar_p2;
   unsigned int text_color;
   unsigned int box_color;
+  int floor_y;
   int floor_height;
+  int bar_x;
+  int bar_y;
+  int bar_width;
+  int bar_height;
+  int timer_box_x;
+  int timer_box_y;
+  int timer_box_width;
+  int timer_box_height;
+  int timer_text_y;
+  int label_y;
+  int text_scale_small;
+  int text_scale_medium;
   int timer_seconds;
   char timer_text[8];
   int hp_width;
@@ -239,53 +284,102 @@ static void fighter_renderer_draw_playfield_fb(fighter_renderer_t *renderer,
   bar_p2 = fighter_fb_color(renderer, 77, 182, 255);
   text_color = fighter_fb_color(renderer, 248, 245, 230);
   box_color = fighter_fb_color(renderer, 16, 20, 32);
-  floor_height = renderer->fb_height - game->config.floor_y;
+  floor_y = fighter_scale_axis(game->config.floor_y, renderer->fb_height,
+                               game->config.screen_height);
+  floor_height = renderer->fb_height - floor_y;
+  bar_x = fighter_scale_axis(18, renderer->fb_width, 640);
+  bar_y = fighter_scale_axis(16, renderer->fb_height, 480);
+  bar_width = fighter_scale_size_axis(220, renderer->fb_width, 640);
+  bar_height = fighter_scale_size_axis(24, renderer->fb_height, 480);
+  timer_box_x = fighter_scale_axis(320 - 44, renderer->fb_width, 640);
+  timer_box_y = fighter_scale_axis(12, renderer->fb_height, 480);
+  timer_box_width = fighter_scale_size_axis(88, renderer->fb_width, 640);
+  timer_box_height = fighter_scale_size_axis(34, renderer->fb_height, 480);
+  timer_text_y = fighter_scale_axis(18, renderer->fb_height, 480);
+  label_y = fighter_scale_axis(48, renderer->fb_height, 480);
+  text_scale_small = fighter_scale_text_size(renderer, 2);
+  text_scale_medium = fighter_scale_text_size(renderer, 3);
   timer_seconds = fighter_game_round_seconds_remaining(game);
 
-  fighter_fb_fill_rect(renderer, 0, 0, renderer->fb_width, game->config.floor_y,
+  fighter_fb_fill_rect(renderer, 0, 0, renderer->fb_width, floor_y,
                        sky_top);
-  fighter_fb_fill_rect(renderer, 0, game->config.floor_y, renderer->fb_width,
+  fighter_fb_fill_rect(renderer, 0, floor_y, renderer->fb_width,
                        floor_height, floor_color);
-  fighter_fb_fill_rect(renderer, 18, 16, 220, 24, bar_bg);
-  fighter_fb_fill_rect(renderer, renderer->fb_width - 238, 16, 220, 24, bar_bg);
+  fighter_fb_fill_rect(renderer, bar_x, bar_y, bar_width, bar_height, bar_bg);
+  fighter_fb_fill_rect(renderer, renderer->fb_width - bar_x - bar_width, bar_y,
+                       bar_width, bar_height, bar_bg);
 
-  hp_width = game->players[0].hp * 220 / game->config.max_hp;
-  fighter_fb_fill_rect(renderer, 18, 16, hp_width, 24, bar_p1);
-  hp_width = game->players[1].hp * 220 / game->config.max_hp;
-  fighter_fb_fill_rect(renderer, renderer->fb_width - 238, 16, hp_width, 24, bar_p2);
+  hp_width = game->players[0].hp * bar_width / game->config.max_hp;
+  fighter_fb_fill_rect(renderer, bar_x, bar_y, hp_width, bar_height, bar_p1);
+  hp_width = game->players[1].hp * bar_width / game->config.max_hp;
+  fighter_fb_fill_rect(renderer, renderer->fb_width - bar_x - bar_width, bar_y,
+                       hp_width, bar_height, bar_p2);
 
-  fighter_fb_fill_rect(renderer, renderer->fb_width / 2 - 44, 12, 88, 34,
-                       box_color);
+  fighter_fb_fill_rect(renderer, timer_box_x, timer_box_y, timer_box_width,
+                       timer_box_height, box_color);
   snprintf(timer_text, sizeof(timer_text), "%02d", timer_seconds);
-  fighter_fb_draw_centered_text(renderer, renderer->fb_width / 2, 18, timer_text, 3,
-                                text_color);
+  fighter_fb_draw_centered_text(renderer, renderer->fb_width / 2, timer_text_y,
+                                timer_text, text_scale_medium, text_color);
 
-  fighter_fb_draw_text(renderer, 24, 48, "P1", 2, text_color);
-  fighter_fb_draw_text(renderer, renderer->fb_width - 60, 48, "P2", 2, text_color);
+  fighter_fb_draw_text(renderer, fighter_scale_axis(24, renderer->fb_width, 640),
+                       label_y, "P1", text_scale_small, text_color);
+  fighter_fb_draw_text(
+      renderer,
+      renderer->fb_width - fighter_scale_axis(60, renderer->fb_width, 640), label_y,
+      "P2", text_scale_small, text_color);
 
   for (i = 0; i < FIGHTER_PLAYER_COUNT; ++i) {
     const fighter_player_state_t *player = &game->players[i];
     unsigned int player_color = i == 0 ? p1_color : p2_color;
+    int player_x;
+    int player_y;
+    int player_w;
+    int player_h;
     int eye_x;
+    int eye_y;
+    int eye_size;
 
-    fighter_fb_fill_rect(renderer, player->x, player->y, game->config.player_width,
-                         game->config.player_height, player_color);
+    player_x = fighter_scale_axis(player->x, renderer->fb_width, game->config.screen_width);
+    player_y =
+        fighter_scale_axis(player->y, renderer->fb_height, game->config.screen_height);
+    player_w = fighter_scale_size_axis(game->config.player_width, renderer->fb_width,
+                                       game->config.screen_width);
+    player_h = fighter_scale_size_axis(game->config.player_height, renderer->fb_height,
+                                       game->config.screen_height);
+
+    fighter_fb_fill_rect(renderer, player_x, player_y, player_w, player_h, player_color);
     if (player->attack_visual_frames > 0) {
+      int effect_x;
+      int effect_y;
+      int effect_w;
+      int effect_h;
+
+      effect_x = player->facing > 0 ? player_x + player_w
+                                    : player_x - fighter_scale_size_axis(
+                                                     12, renderer->fb_width, 640);
+      effect_y = player_y + fighter_scale_axis(18, renderer->fb_height, 480);
+      effect_w = fighter_scale_size_axis(12, renderer->fb_width, 640);
+      effect_h = fighter_scale_size_axis(18, renderer->fb_height, 480);
       fighter_fb_fill_rect(renderer,
-                           player->facing > 0 ? player->x + game->config.player_width
-                                              : player->x - 12,
-                           player->y + 18, 12, 18,
+                           effect_x, effect_y, effect_w, effect_h,
                            fighter_fb_color(renderer, 255, 240, 120));
     }
-    eye_x = player->facing > 0 ? player->x + game->config.player_width - 14
-                               : player->x + 8;
-    fighter_fb_fill_rect(renderer, eye_x, player->y + 14, 6, 6,
+    eye_size = fighter_scale_size_axis(6, renderer->fb_width, 640);
+    eye_x = player->facing > 0 ? player_x + player_w -
+                                     fighter_scale_size_axis(14, renderer->fb_width, 640)
+                               : player_x + fighter_scale_size_axis(8, renderer->fb_width, 640);
+    eye_y = player_y + fighter_scale_axis(14, renderer->fb_height, 480);
+    fighter_fb_fill_rect(renderer, eye_x, eye_y, eye_size, eye_size,
                          fighter_fb_color(renderer, 250, 250, 250));
   }
 
   if (overlay) {
-    fighter_fb_fill_rect(renderer, renderer->fb_width / 2 - 150, 120, 300, 140,
-                         fighter_fb_color(renderer, 18, 18, 20));
+    fighter_fb_fill_rect(
+        renderer, fighter_scale_axis(320 - 150, renderer->fb_width, 640),
+        fighter_scale_axis(120, renderer->fb_height, 480),
+        fighter_scale_size_axis(300, renderer->fb_width, 640),
+        fighter_scale_size_axis(140, renderer->fb_height, 480),
+        fighter_fb_color(renderer, 18, 18, 20));
   }
 
   (void)sky_bottom;
@@ -298,6 +392,16 @@ static void fighter_renderer_draw_menu_fb(fighter_renderer_t *renderer,
   unsigned int box_color;
   unsigned int text_color;
   int stripe_offset;
+  int box_x;
+  int box_y;
+  int box_w;
+  int box_h;
+  int title_y;
+  int prompt_y;
+  int title_scale;
+  int prompt_scale;
+  int stripe_step;
+  int stripe_width;
   int i;
 
   bg_primary = fighter_game_menu_animation_frame(game)
@@ -308,29 +412,51 @@ static void fighter_renderer_draw_menu_fb(fighter_renderer_t *renderer,
                      : fighter_fb_color(renderer, 52, 164, 196);
   box_color = fighter_fb_color(renderer, 18, 22, 32);
   text_color = fighter_fb_color(renderer, 248, 245, 230);
-  stripe_offset = (int)(game->frame_counter % 120U);
+  stripe_offset = fighter_scale_axis((int)(game->frame_counter % 120U),
+                                     renderer->fb_width, 640);
+  box_x = fighter_scale_axis(320 - 170, renderer->fb_width, 640);
+  box_y = fighter_scale_axis(90, renderer->fb_height, 480);
+  box_w = fighter_scale_size_axis(340, renderer->fb_width, 640);
+  box_h = fighter_scale_size_axis(140, renderer->fb_height, 480);
+  title_y = fighter_scale_axis(120, renderer->fb_height, 480);
+  prompt_y = fighter_scale_axis(185, renderer->fb_height, 480);
+  title_scale = fighter_scale_text_size(renderer, 3);
+  prompt_scale = fighter_scale_text_size(renderer, 2);
+  stripe_step = fighter_scale_size_axis(120, renderer->fb_width, 640);
+  stripe_width = fighter_scale_size_axis(40, renderer->fb_width, 640);
 
   fighter_fb_fill_rect(renderer, 0, 0, renderer->fb_width, renderer->fb_height,
                        bg_primary);
-  for (i = -renderer->fb_height; i < renderer->fb_width; i += 120) {
-    fighter_fb_fill_rect(renderer, i + stripe_offset, 0, 40, renderer->fb_height,
+  for (i = -renderer->fb_height; i < renderer->fb_width; i += stripe_step) {
+    fighter_fb_fill_rect(renderer, i + stripe_offset, 0, stripe_width, renderer->fb_height,
                          bg_secondary);
   }
-  fighter_fb_fill_rect(renderer, renderer->fb_width / 2 - 170, 90, 340, 140,
-                       box_color);
-  fighter_fb_draw_centered_text(renderer, renderer->fb_width / 2, 120,
-                                "PHASE 1 FIGHTER", 3, text_color);
-  fighter_fb_draw_centered_text(renderer, renderer->fb_width / 2, 185,
-                                "PRESS ANY KEY", 2, text_color);
+  fighter_fb_fill_rect(renderer, box_x, box_y, box_w, box_h, box_color);
+  fighter_fb_draw_centered_text(renderer, renderer->fb_width / 2, title_y,
+                                "PHASE 1 FIGHTER", title_scale, text_color);
+  fighter_fb_draw_centered_text(renderer, renderer->fb_width / 2, prompt_y,
+                                "PRESS ANY KEY", prompt_scale, text_color);
 }
 
 static void fighter_renderer_draw_game_over_fb(fighter_renderer_t *renderer,
                                                const fighter_game_t *game) {
   const char *winner_text;
   unsigned int text_color;
+  int title_scale;
+  int sub_scale;
+  int title_y;
+  int winner_y;
+  int restart_y;
+  int menu_y;
 
   fighter_renderer_draw_playfield_fb(renderer, game, 1);
   text_color = fighter_fb_color(renderer, 248, 245, 230);
+  title_scale = fighter_scale_text_size(renderer, 3);
+  sub_scale = fighter_scale_text_size(renderer, 2);
+  title_y = fighter_scale_axis(145, renderer->fb_height, 480);
+  winner_y = fighter_scale_axis(190, renderer->fb_height, 480);
+  restart_y = fighter_scale_axis(225, renderer->fb_height, 480);
+  menu_y = fighter_scale_axis(250, renderer->fb_height, 480);
 
   switch (game->winner) {
     case FIGHTER_WINNER_PLAYER1:
@@ -348,15 +474,15 @@ static void fighter_renderer_draw_game_over_fb(fighter_renderer_t *renderer,
       break;
   }
 
-  fighter_fb_draw_centered_text(renderer, renderer->fb_width / 2, 145, "GAME OVER",
-                                3, text_color);
-  fighter_fb_draw_centered_text(renderer, renderer->fb_width / 2, 190, winner_text, 2,
-                                text_color);
+  fighter_fb_draw_centered_text(renderer, renderer->fb_width / 2, title_y,
+                                "GAME OVER", title_scale, text_color);
+  fighter_fb_draw_centered_text(renderer, renderer->fb_width / 2, winner_y,
+                                winner_text, sub_scale, text_color);
   if (fighter_game_game_over_ready(game)) {
-    fighter_fb_draw_centered_text(renderer, renderer->fb_width / 2, 225,
-                                  "JK RESTART", 2, text_color);
-    fighter_fb_draw_centered_text(renderer, renderer->fb_width / 2, 250,
-                                  "L TO MENU", 2, text_color);
+    fighter_fb_draw_centered_text(renderer, renderer->fb_width / 2, restart_y,
+                                  "JK RESTART", sub_scale, text_color);
+    fighter_fb_draw_centered_text(renderer, renderer->fb_width / 2, menu_y,
+                                  "L TO MENU", sub_scale, text_color);
   }
 }
 #endif
