@@ -254,20 +254,3 @@ int usb_hid_keyboard_manager_poll(usb_hid_keyboard_manager_t *manager,
 
   return (int)manager->device_count;
 }
-
-int usb_hid_keyboard_report_contains(const usb_hid_keyboard_report_t *report,
-                                     uint8_t keycode) {
-  int i;
-
-  if (!report || keycode == 0) {
-    return 0;
-  }
-
-  for (i = 0; i < 6; ++i) {
-    if (report->keycode[i] == keycode) {
-      return 1;
-    }
-  }
-
-  return 0;
-}

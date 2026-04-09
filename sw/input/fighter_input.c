@@ -2,16 +2,6 @@
 
 #include <string.h>
 
-enum {
-  HID_KEY_A = 0x04,
-  HID_KEY_D = 0x07,
-  HID_KEY_J = 0x0d,
-  HID_KEY_K = 0x0e,
-  HID_KEY_L = 0x0f,
-  HID_KEY_S = 0x16,
-  HID_KEY_W = 0x1a
-};
-
 static fighter_button_state_t fighter_buttons_from_report(
     const usb_hid_keyboard_report_t *report) {
   fighter_button_state_t buttons;
@@ -21,13 +11,13 @@ static fighter_button_state_t fighter_buttons_from_report(
     return buttons;
   }
 
-  buttons.up = usb_hid_keyboard_report_contains(report, HID_KEY_W);
-  buttons.down = usb_hid_keyboard_report_contains(report, HID_KEY_S);
-  buttons.left = usb_hid_keyboard_report_contains(report, HID_KEY_A);
-  buttons.right = usb_hid_keyboard_report_contains(report, HID_KEY_D);
-  buttons.attack = usb_hid_keyboard_report_contains(report, HID_KEY_J);
-  buttons.guard = usb_hid_keyboard_report_contains(report, HID_KEY_K);
-  buttons.exit_game = usb_hid_keyboard_report_contains(report, HID_KEY_L);
+  buttons.up = usb_hid_keyboard_report_contains(report, FIGHTER_HID_KEY_W);
+  buttons.down = usb_hid_keyboard_report_contains(report, FIGHTER_HID_KEY_S);
+  buttons.left = usb_hid_keyboard_report_contains(report, FIGHTER_HID_KEY_A);
+  buttons.right = usb_hid_keyboard_report_contains(report, FIGHTER_HID_KEY_D);
+  buttons.attack = usb_hid_keyboard_report_contains(report, FIGHTER_HID_KEY_J);
+  buttons.guard = usb_hid_keyboard_report_contains(report, FIGHTER_HID_KEY_K);
+  buttons.exit_game = usb_hid_keyboard_report_contains(report, FIGHTER_HID_KEY_L);
 
   return buttons;
 }
@@ -102,12 +92,31 @@ void fighter_player_parser_update(fighter_player_parser_t *parser,
 
   result->move_left = buttons.left && !buttons.right;
   result->move_right = buttons.right && !buttons.left;
+  result->move_left_pressed =
+      fighter_button_pressed(result->move_left, parser->previous_buttons.left);
+  result->move_right_pressed =
+      fighter_button_pressed(result->move_right, parser->previous_buttons.right);
   result->jump_held = buttons.up;
+  result->jump_pressed = fighter_button_pressed(buttons.up, parser->previous_buttons.up);
   result->crouch_held = buttons.down;
+  result->crouch_pressed =
+      fighter_button_pressed(buttons.down, parser->previous_buttons.down);
   result->guard_held = buttons.guard;
+  result->guard_pressed =
+      fighter_button_pressed(buttons.guard, parser->previous_buttons.guard);
   result->exit_requested =
       fighter_button_pressed(buttons.exit_game, parser->previous_buttons.exit_game);
   result->attack_pressed = attack_edge;
+  result->any_input_active = buttons.up || buttons.down || buttons.left || buttons.right ||
+                             buttons.attack || buttons.guard || buttons.exit_game;
+  result->any_input_pressed =
+      fighter_button_pressed(result->any_input_active,
+                             parser->previous_buttons.up || parser->previous_buttons.down ||
+                                 parser->previous_buttons.left ||
+                                 parser->previous_buttons.right ||
+                                 parser->previous_buttons.attack ||
+                                 parser->previous_buttons.guard ||
+                                 parser->previous_buttons.exit_game);
   result->attack_command = FIGHTER_ATTACK_NONE;
 
   if (attack_edge) {
