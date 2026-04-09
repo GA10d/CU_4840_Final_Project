@@ -1,6 +1,7 @@
 #include "fighter_renderer.h"
 
 #include <ctype.h>
+#include <limits.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
