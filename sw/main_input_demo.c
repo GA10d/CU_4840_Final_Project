@@ -1,5 +1,6 @@
 #include "fighter_input.h"
 #include "usb_hid_keyboard.h"
+#include "fighter_ui.h"
 
 #include <signal.h>
 #include <stdio.h>
@@ -21,9 +22,14 @@ static int player_result_changed(const fighter_player_result_t *lhs,
 static void print_player_result(int player_index,
                                 const fighter_player_result_t *result) {
   printf("P%d: left=%d right=%d jump=%d crouch=%d guard=%d attack=%s exit=%d\n",
-         player_index + 1, result->move_left, result->move_right, result->jump_held,
-         result->crouch_held, result->guard_held,
-         fighter_attack_command_name(result->attack_command), result->exit_requested);
+         player_index + 1,
+         result->move_left,
+         result->move_right,
+         result->jump_held,
+         result->crouch_held,
+         result->guard_held,
+         fighter_attack_command_name(result->attack_command),
+         result->exit_requested);
 }
 
 int main(void) {
@@ -32,6 +38,9 @@ int main(void) {
   fighter_menu_parser_t menu_parser;
   fighter_player_parser_t player_parsers[USB_HID_KEYBOARD_MAX_DEVICES];
   fighter_player_result_t previous_results[USB_HID_KEYBOARD_MAX_DEVICES];
+  fighter_menu_result_t menu_result;
+  fighter_ui_context_t ui;
+
   int in_menu = 1;
   int rc;
   size_t i;
@@ -40,7 +49,11 @@ int main(void) {
   signal(SIGTERM, on_signal);
 
   memset(previous_results, 0, sizeof(previous_results));
+  memset(&menu_result, 0, sizeof(menu_result));
+
   fighter_menu_parser_init(&menu_parser);
+  fighter_ui_init(&ui);
+
   for (i = 0; i < USB_HID_KEYBOARD_MAX_DEVICES; ++i) {
     fighter_player_parser_init(&player_parsers[i]);
   }
@@ -54,8 +67,11 @@ int main(void) {
   printf("opened %zu keyboard(s)\n", keyboard_manager.device_count);
   for (i = 0; i < keyboard_manager.device_count; ++i) {
     const usb_hid_keyboard_device_t *device = &keyboard_manager.devices[i];
-    printf("  keyboard %zu -> %s (bus=%d addr=%d)\n", i + 1, device->product_name,
-           device->bus_number, device->device_address);
+    printf("  keyboard %zu -> %s (bus=%d addr=%d)\n",
+           i + 1,
+           device->product_name,
+           device->bus_number,
+           device->device_address);
   }
 
   printf("\n");
@@ -68,15 +84,18 @@ int main(void) {
   printf("\n");
 
   while (g_running) {
-    fighter_menu_result_t menu_result;
-
     memset(reports, 0, sizeof(reports));
-    rc = usb_hid_keyboard_manager_poll(&keyboard_manager, reports,
-                                       USB_HID_KEYBOARD_MAX_DEVICES, 8);
+    rc = usb_hid_keyboard_manager_poll(&keyboard_manager,
+                                       reports,
+                                       USB_HID_KEYBOARD_MAX_DEVICES,
+                                       8);
     if (rc < 0) {
       fprintf(stderr, "poll failed: %d\n", rc);
       break;
     }
+
+    /* 每一轮都更新 UI 动画状态 */
+    fighter_ui_update(&ui);
 
     if (in_menu) {
       fighter_menu_parser_update(&menu_parser, &reports[0], &menu_result);
@@ -85,9 +104,16 @@ int main(void) {
           menu_result.action == FIGHTER_MENU_ACTION_MOVE_RIGHT) {
         printf("menu selection -> %s\n",
                fighter_menu_item_name(menu_result.selected_item));
+
+        /* 以后这里可接菜单移动音效 */
+        /* fighter_audio_play_move(); */
       } else if (menu_result.action == FIGHTER_MENU_ACTION_CONFIRM) {
         printf("menu confirm -> %s\n",
                fighter_menu_item_name(menu_result.selected_item));
+
+        /* 以后这里可接确认音效 */
+        /* fighter_audio_play_confirm(); */
+
         if (menu_result.selected_item == FIGHTER_MENU_ITEM_START) {
           in_menu = 0;
           memset(previous_results, 0, sizeof(previous_results));
@@ -100,7 +126,11 @@ int main(void) {
           break;
         }
       }
+
+      fighter_ui_render_menu(&ui, &menu_result);
     } else {
+      fighter_ui_render_battle(&ui);
+
       for (i = 0; i < keyboard_manager.device_count; ++i) {
         fighter_player_result_t result;
 
