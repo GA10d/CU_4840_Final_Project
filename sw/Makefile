@@ -2,7 +2,13 @@ CC ?= gcc
 PKG_CONFIG ?= pkg-config
 
 TARGET := input_demo
-SRCS := main_input_demo.c input/usb_hid_keyboard.c input/fighter_input.c
+SRCS := main_input_demo.c \
+        fighter_ui.c \
+        audio.c \
+        game.c \
+        input/usb_hid_keyboard.c \
+        input/fighter_input.c
+
 OBJS := $(SRCS:.c=.o)
 
 CFLAGS += -std=c11 -Wall -Wextra -Werror -Iinclude
