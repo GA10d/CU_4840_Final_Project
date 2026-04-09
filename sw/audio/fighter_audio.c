@@ -268,7 +268,7 @@ const char *fighter_audio_track_path(fighter_audio_track_t track) {
     case FIGHTER_AUDIO_TRACK_MENU_CONFIRM:
       return "../game_assets/sound effects/Credit.wav";
     case FIGHTER_AUDIO_TRACK_GAME_OVER:
-      return "../game_assets/sound effects/src/Street_Fighter_II_-_The_World_Warrior_(CP_System)/43 Game Over.wav";
+      return "../game_assets/sound effects/Game Over.wav";
     default:
       return NULL;
   }

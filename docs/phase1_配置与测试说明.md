@@ -102,10 +102,16 @@ game_assets/
     menu/
   backgrounds/
   characters/
-  audio/
+  sound effects/
 ```
 
-当前为了少改已有音频资源，`WAV` 还保留在现有位置；如果你们后面也想一起整理，我建议再单独把 `sound effects/` 迁到 `audio/` 下面。
+当前这次 Phase 1 实际保留并使用的音频资源只有这 3 个：
+
+- [Title.wav](/Users/guozhewen/Documents/GitHub/CU_4840_Final_Project/game_assets/sound%20effects/Title.wav)
+- [Credit.wav](/Users/guozhewen/Documents/GitHub/CU_4840_Final_Project/game_assets/sound%20effects/Credit.wav)
+- [Game Over.wav](/Users/guozhewen/Documents/GitHub/CU_4840_Final_Project/game_assets/sound%20effects/Game%20Over.wav)
+
+也就是说，把原来 `sound effects/src/` 里的大批转换素材删掉后，不会影响当前 Phase 1 的运行。
 
 ### 4.2 VGA 输出路径
 
