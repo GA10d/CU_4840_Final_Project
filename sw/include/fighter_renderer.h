@@ -34,6 +34,11 @@ typedef struct {
   int console_interval_frames;
   uint32_t last_console_frame;
   fighter_game_state_t last_console_state;
+  fighter_winner_t last_console_winner;
+  fighter_finish_reason_t last_console_finish_reason;
+  int last_console_ready;
+  int last_console_valid;
+  fighter_player_state_t last_console_players[FIGHTER_PLAYER_COUNT];
 #ifdef __linux__
   int fb_fd;
   int fb_width;

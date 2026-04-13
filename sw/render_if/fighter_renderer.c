@@ -119,6 +119,202 @@ void fighter_renderer_options_init(fighter_renderer_options_t *options) {
   options->framebuffer_path = "/dev/fb0";
 }
 
+static const char *fighter_renderer_game_state_name(
+    fighter_game_state_t state) {
+  switch (state) {
+    case FIGHTER_GAME_STATE_MENU:
+      return "MENU";
+    case FIGHTER_GAME_STATE_PLAYING:
+      return "PLAYING";
+    case FIGHTER_GAME_STATE_GAME_OVER:
+      return "GAME_OVER";
+    default:
+      return "UNKNOWN";
+  }
+}
+
+static const char *fighter_renderer_visual_state_name(
+    fighter_visual_state_t state) {
+  switch (state) {
+    case FIGHTER_VISUAL_STATE_IDLE:
+      return "IDLE";
+    case FIGHTER_VISUAL_STATE_WALK:
+      return "WALK";
+    case FIGHTER_VISUAL_STATE_JUMP:
+      return "JUMP";
+    case FIGHTER_VISUAL_STATE_CROUCH:
+      return "CROUCH";
+    case FIGHTER_VISUAL_STATE_GUARD:
+      return "GUARD";
+    case FIGHTER_VISUAL_STATE_ATTACK:
+      return "ATTACK";
+    case FIGHTER_VISUAL_STATE_HIT:
+      return "HIT";
+    case FIGHTER_VISUAL_STATE_BLOCK_STUN:
+      return "BLOCK_STUN";
+    case FIGHTER_VISUAL_STATE_KO:
+      return "KO";
+    default:
+      return "UNKNOWN";
+  }
+}
+
+static const char *fighter_renderer_attack_phase_name(
+    fighter_attack_phase_t phase) {
+  switch (phase) {
+    case FIGHTER_ATTACK_PHASE_NONE:
+      return "NONE";
+    case FIGHTER_ATTACK_PHASE_STARTUP:
+      return "STARTUP";
+    case FIGHTER_ATTACK_PHASE_ACTIVE:
+      return "ACTIVE";
+    case FIGHTER_ATTACK_PHASE_HIT_CONFIRM:
+      return "HIT_CONFIRM";
+    case FIGHTER_ATTACK_PHASE_BLOCK_CONFIRM:
+      return "BLOCK_CONFIRM";
+    case FIGHTER_ATTACK_PHASE_RECOVERY:
+      return "RECOVERY";
+    default:
+      return "UNKNOWN";
+  }
+}
+
+static const char *fighter_renderer_combat_result_name(
+    fighter_combat_result_t result) {
+  switch (result) {
+    case FIGHTER_COMBAT_RESULT_NONE:
+      return "NONE";
+    case FIGHTER_COMBAT_RESULT_HIT:
+      return "HIT";
+    case FIGHTER_COMBAT_RESULT_BLOCKED:
+      return "BLOCKED";
+    case FIGHTER_COMBAT_RESULT_TRADE:
+      return "TRADE";
+    case FIGHTER_COMBAT_RESULT_WHIFF:
+      return "WHIFF";
+    default:
+      return "UNKNOWN";
+  }
+}
+
+static const char *fighter_renderer_winner_name(fighter_winner_t winner) {
+  switch (winner) {
+    case FIGHTER_WINNER_NONE:
+      return "NONE";
+    case FIGHTER_WINNER_PLAYER1:
+      return "P1";
+    case FIGHTER_WINNER_PLAYER2:
+      return "P2";
+    case FIGHTER_WINNER_DRAW:
+      return "DRAW";
+    default:
+      return "UNKNOWN";
+  }
+}
+
+static const char *fighter_renderer_finish_reason_name(
+    fighter_finish_reason_t reason) {
+  switch (reason) {
+    case FIGHTER_FINISH_REASON_NONE:
+      return "NONE";
+    case FIGHTER_FINISH_REASON_KO:
+      return "KO";
+    case FIGHTER_FINISH_REASON_TIME_OUT:
+      return "TIME_OUT";
+    case FIGHTER_FINISH_REASON_DOUBLE_KO:
+      return "DOUBLE_KO";
+    case FIGHTER_FINISH_REASON_EXIT:
+      return "EXIT";
+    default:
+      return "UNKNOWN";
+  }
+}
+
+static void fighter_renderer_append_flag(char *buffer,
+                                         size_t buffer_size,
+                                         const char *flag_name) {
+  size_t used;
+
+  if (!buffer || !flag_name || buffer_size == 0) {
+    return;
+  }
+
+  used = strlen(buffer);
+  if (used >= buffer_size - 1) {
+    return;
+  }
+
+  if (used != 0) {
+    (void)snprintf(buffer + used, buffer_size - used, "|%s", flag_name);
+  } else {
+    (void)snprintf(buffer + used, buffer_size - used, "%s", flag_name);
+  }
+}
+
+static void fighter_renderer_format_event_flags(uint32_t event_flags,
+                                                char *buffer,
+                                                size_t buffer_size) {
+  if (!buffer || buffer_size == 0) {
+    return;
+  }
+
+  buffer[0] = '\0';
+  if (event_flags == 0U) {
+    (void)snprintf(buffer, buffer_size, "-");
+    return;
+  }
+
+  if ((event_flags & FIGHTER_PLAYER_EVENT_ATTACK_START) != 0U) {
+    fighter_renderer_append_flag(buffer, buffer_size, "ATTACK_START");
+  }
+  if ((event_flags & FIGHTER_PLAYER_EVENT_HIT) != 0U) {
+    fighter_renderer_append_flag(buffer, buffer_size, "HIT");
+  }
+  if ((event_flags & FIGHTER_PLAYER_EVENT_BLOCK) != 0U) {
+    fighter_renderer_append_flag(buffer, buffer_size, "BLOCK");
+  }
+  if ((event_flags & FIGHTER_PLAYER_EVENT_LAND) != 0U) {
+    fighter_renderer_append_flag(buffer, buffer_size, "LAND");
+  }
+  if ((event_flags & FIGHTER_PLAYER_EVENT_KO) != 0U) {
+    fighter_renderer_append_flag(buffer, buffer_size, "KO");
+  }
+}
+
+static int fighter_renderer_console_player_changed(
+    const fighter_player_state_t *lhs,
+    const fighter_player_state_t *rhs) {
+  if (!lhs || !rhs) {
+    return 1;
+  }
+
+  return lhs->visual_state != rhs->visual_state ||
+         lhs->attack_phase != rhs->attack_phase ||
+         lhs->last_attack != rhs->last_attack || lhs->hp != rhs->hp ||
+         lhs->facing != rhs->facing;
+}
+
+static void fighter_renderer_print_console_player(const char *label,
+                                                  const fighter_player_state_t *player) {
+  char event_flags[64];
+
+  if (!label || !player) {
+    return;
+  }
+
+  fighter_renderer_format_event_flags(player->event_flags, event_flags,
+                                      sizeof(event_flags));
+  printf("  %s pos=(%d,%d) hp=%d face=%s vis=%s atk=%s phase=%s result=%s "
+         "state_frame=%u events=%s\n",
+         label, player->x, player->y, player->hp,
+         player->facing > 0 ? "R" : "L",
+         fighter_renderer_visual_state_name(player->visual_state),
+         fighter_attack_command_name(player->last_attack),
+         fighter_renderer_attack_phase_name(player->attack_phase),
+         fighter_renderer_combat_result_name(player->combat_result),
+         player->state_frame, event_flags);
+}
+
 #ifdef __linux__
 static unsigned int fighter_fb_color(const fighter_renderer_t *renderer,
                                      unsigned char red,
@@ -846,37 +1042,75 @@ static void fighter_renderer_draw_game_over_fb(fighter_renderer_t *renderer,
 
 static void fighter_renderer_draw_console(fighter_renderer_t *renderer,
                                           const fighter_game_t *game) {
+  int game_changed;
+  int player_changed[FIGHTER_PLAYER_COUNT];
+  int should_print;
+  int i;
+
   if (!renderer || !game) {
     return;
   }
 
-  if (renderer->last_console_state == game->state &&
-      game->frame_counter - renderer->last_console_frame <
-          (uint32_t)renderer->console_interval_frames) {
+  game_changed = !renderer->last_console_valid ||
+                 renderer->last_console_state != game->state ||
+                 renderer->last_console_winner != game->winner ||
+                 renderer->last_console_finish_reason != game->finish_reason ||
+                 renderer->last_console_ready !=
+                     fighter_game_game_over_ready(game);
+  should_print = game_changed;
+
+  for (i = 0; i < FIGHTER_PLAYER_COUNT; ++i) {
+    player_changed[i] =
+        !renderer->last_console_valid ||
+        fighter_renderer_console_player_changed(&renderer->last_console_players[i],
+                                               &game->players[i]) ||
+        game->players[i].combat_result != FIGHTER_COMBAT_RESULT_NONE ||
+        game->players[i].event_flags != FIGHTER_PLAYER_EVENT_NONE;
+    if (player_changed[i]) {
+      should_print = 1;
+    }
+  }
+
+  if (!should_print) {
     return;
   }
 
   renderer->last_console_frame = game->frame_counter;
   renderer->last_console_state = game->state;
+  renderer->last_console_winner = game->winner;
+  renderer->last_console_finish_reason = game->finish_reason;
+  renderer->last_console_ready = fighter_game_game_over_ready(game);
+  renderer->last_console_valid = 1;
+  for (i = 0; i < FIGHTER_PLAYER_COUNT; ++i) {
+    renderer->last_console_players[i] = game->players[i];
+  }
 
   switch (game->state) {
     case FIGHTER_GAME_STATE_MENU:
-      printf("[frame %u] MENU anim=%d asset=%s\n", game->frame_counter,
-             fighter_game_menu_animation_frame(game),
-             fighter_renderer_menu_frame_path(
-                 fighter_game_menu_animation_frame(game)));
+      printf("[frame %u] GAME state=%s winner=%s finish=%s\n",
+             game->frame_counter, fighter_renderer_game_state_name(game->state),
+             fighter_renderer_winner_name(game->winner),
+             fighter_renderer_finish_reason_name(game->finish_reason));
+      fighter_renderer_print_console_player("P1", &game->players[0]);
+      fighter_renderer_print_console_player("P2", &game->players[1]);
       break;
     case FIGHTER_GAME_STATE_PLAYING:
-      printf("[frame %u] PLAY timer=%d P1(x=%d y=%d hp=%d state=%d) "
-             "P2(x=%d y=%d hp=%d state=%d)\n",
-             game->frame_counter, fighter_game_round_seconds_remaining(game),
-             game->players[0].x, game->players[0].y, game->players[0].hp,
-             game->players[0].visual_state, game->players[1].x, game->players[1].y,
-             game->players[1].hp, game->players[1].visual_state);
+      printf("[frame %u] GAME state=%s timer=%d winner=%s finish=%s\n",
+             game->frame_counter, fighter_renderer_game_state_name(game->state),
+             fighter_game_round_seconds_remaining(game),
+             fighter_renderer_winner_name(game->winner),
+             fighter_renderer_finish_reason_name(game->finish_reason));
+      fighter_renderer_print_console_player("P1", &game->players[0]);
+      fighter_renderer_print_console_player("P2", &game->players[1]);
       break;
     case FIGHTER_GAME_STATE_GAME_OVER:
-      printf("[frame %u] GAME_OVER winner=%d ready=%d\n", game->frame_counter,
-             game->winner, fighter_game_game_over_ready(game));
+      printf("[frame %u] GAME state=%s winner=%s finish=%s ready=%d\n",
+             game->frame_counter, fighter_renderer_game_state_name(game->state),
+             fighter_renderer_winner_name(game->winner),
+             fighter_renderer_finish_reason_name(game->finish_reason),
+             fighter_game_game_over_ready(game));
+      fighter_renderer_print_console_player("P1", &game->players[0]);
+      fighter_renderer_print_console_player("P2", &game->players[1]);
       break;
     default:
       break;
