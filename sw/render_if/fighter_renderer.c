@@ -681,7 +681,9 @@ static void fighter_renderer_draw_playfield_fb(fighter_renderer_t *renderer,
                                        game->config.screen_height);
 
     fighter_fb_fill_rect(renderer, player_x, player_y, player_w, player_h, player_color);
-    if (player->attack_visual_frames > 0) {
+    if (player->attack_phase == FIGHTER_ATTACK_PHASE_ACTIVE ||
+        player->attack_phase == FIGHTER_ATTACK_PHASE_HIT_CONFIRM ||
+        player->attack_phase == FIGHTER_ATTACK_PHASE_BLOCK_CONFIRM) {
       int effect_x;
       int effect_y;
       int effect_w;
