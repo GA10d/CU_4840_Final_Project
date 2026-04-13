@@ -3,11 +3,21 @@
 
 #include <stdbool.h>
 
-#include "usb_hid_keyboard.h"
+#include "hid_keyboard_report.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+enum {
+  FIGHTER_HID_KEY_A = 0x04,
+  FIGHTER_HID_KEY_D = 0x07,
+  FIGHTER_HID_KEY_J = 0x0d,
+  FIGHTER_HID_KEY_K = 0x0e,
+  FIGHTER_HID_KEY_L = 0x0f,
+  FIGHTER_HID_KEY_S = 0x16,
+  FIGHTER_HID_KEY_W = 0x1a
+};
 
 typedef enum {
   FIGHTER_MENU_ITEM_START = 0,
@@ -59,11 +69,18 @@ typedef struct {
 typedef struct {
   bool move_left;
   bool move_right;
+  bool move_left_pressed;
+  bool move_right_pressed;
   bool jump_held;
+  bool jump_pressed;
   bool crouch_held;
+  bool crouch_pressed;
   bool guard_held;
+  bool guard_pressed;
   bool exit_requested;
   bool attack_pressed;
+  bool any_input_active;
+  bool any_input_pressed;
   fighter_attack_command_t attack_command;
 } fighter_player_result_t;
 

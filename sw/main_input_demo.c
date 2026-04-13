@@ -5,6 +5,7 @@
 #include <signal.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 static volatile sig_atomic_t g_running = 1;
@@ -12,6 +13,14 @@ static volatile sig_atomic_t g_running = 1;
 static void on_signal(int signal_number) {
   (void)signal_number;
   g_running = 0;
+}
+
+static void sleep_for_poll_interval(void) {
+  struct timespec delay;
+
+  delay.tv_sec = 0;
+  delay.tv_nsec = 1000000L;
+  nanosleep(&delay, NULL);
 }
 
 static int player_result_changed(const fighter_player_result_t *lhs,
@@ -150,8 +159,7 @@ int main(void) {
         }
       }
     }
-
-    usleep(1000);
+    sleep_for_poll_interval();
   }
 
   usb_hid_keyboard_manager_close(&keyboard_manager);

@@ -4,6 +4,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "hid_keyboard_report.h"
+
 #if defined(__has_include)
 #  if __has_include(<libusb-1.0/libusb.h>)
 #    include <libusb-1.0/libusb.h>
@@ -21,12 +23,6 @@ extern "C" {
 #endif
 
 #define USB_HID_KEYBOARD_MAX_DEVICES 2
-
-typedef struct {
-  uint8_t modifiers;
-  uint8_t reserved;
-  uint8_t keycode[6];
-} usb_hid_keyboard_report_t;
 
 typedef struct {
   libusb_device_handle *handle;
@@ -53,9 +49,6 @@ int usb_hid_keyboard_manager_poll(usb_hid_keyboard_manager_t *manager,
                                   usb_hid_keyboard_report_t *reports,
                                   size_t report_capacity,
                                   int timeout_ms);
-
-int usb_hid_keyboard_report_contains(const usb_hid_keyboard_report_t *report,
-                                     uint8_t keycode);
 
 #ifdef __cplusplus
 }
