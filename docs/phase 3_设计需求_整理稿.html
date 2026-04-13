@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>Phase 3需求</title>
+  <style>
+    body {
+      font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+      line-height: 1.65;
+      color: #222;
+      margin: 36px 42px;
+      font-size: 12pt;
+    }
+    h1, h2, h3 {
+      color: #111;
+      margin-top: 1.2em;
+      margin-bottom: 0.5em;
+    }
+    h1 {
+      font-size: 22pt;
+      text-align: center;
+      margin-top: 0;
+    }
+    h2 {
+      font-size: 15pt;
+      border-bottom: 1px solid #bbb;
+      padding-bottom: 4px;
+    }
+    h3 {
+      font-size: 13pt;
+    }
+    p, li {
+      margin: 0.25em 0;
+    }
+    ul, ol {
+      padding-left: 1.4em;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 0.8em 0 1em;
+      font-size: 11pt;
+    }
+    th, td {
+      border: 1px solid #999;
+      padding: 8px 10px;
+      vertical-align: top;
+    }
+    th {
+      background: #f2f2f2;
+      text-align: left;
+    }
+    code, pre {
+      font-family: "SFMono-Regular", "Menlo", monospace;
+      font-size: 10.5pt;
+    }
+    pre {
+      background: #f7f7f7;
+      border: 1px solid #ddd;
+      padding: 10px 12px;
+      white-space: pre-wrap;
+    }
+    .note {
+      background: #f8fbff;
+      border-left: 4px solid #4b86c2;
+      padding: 10px 12px;
+      margin: 0.8em 0;
+    }
+  </style>
+</head>
+<body>
+  <h1>Phase 3需求</h1>
+
+  <h2>1. Phase 3目标</h2>
+  <p>本阶段不再只停留在“角色能动、能打”的演示层，而是要把角色状态机、动画切分、音效触发和 <code>DE1-SoC</code> 集成接口一次性定义清楚，保证游戏逻辑同学、动画切分同学、渲染/硬件同学可以并行开发。</p>
+  <div class="note">
+    <strong>设计原则：</strong> 顶层游戏状态尽量少，角色状态尽量稳定，动画选择只消费状态机输出，不直接依赖按键输入。这样后续接键盘、手柄、脚本回放时都不用改动画层。
+  </div>
+
+  <h2>2. 游戏层状态机</h2>
+  <p>从实现和协作角度，不建议把“P1 胜 / P2 胜 / Time Out / 平局”拆成 4 个平级 <code>GameState</code>。更稳妥的方案是：</p>
+  <ul>
+    <li><code>game_state</code> 只保留 <code>MENU / PLAYING / GAME_OVER</code> 三个大状态</li>
+    <li><code>winner</code> 表示 <code>NONE / P1 / P2 / DRAW</code></li>
+    <li><code>finish_reason</code> 表示 <code>KO / TIME_OUT / DOUBLE_KO / EXIT</code></li>
+  </ul>
+  <p>这样 UI、音效和结束动画都只需要监听 <code>GAME_OVER</code>，再根据 <code>winner</code> 和 <code>finish_reason</code> 选择文案、音效和演出。</p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>状态</th>
+        <th>进入条件</th>
+        <th>退出条件</th>
+        <th>画面/音效要求</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>MENU</code></td>
+        <td>启动游戏或对局中按 <code>L</code> 返回主菜单</td>
+        <td>任意玩家按任意有效输入后进入 <code>PLAYING</code></td>
+        <td>菜单两帧或多帧循环；菜单 BGM 循环；确认时播放短确认音效</td>
+      </tr>
+      <tr>
+        <td><code>PLAYING</code></td>
+        <td>菜单确认开始，重置血量、位置、朝向、计时器</td>
+        <td>任一玩家 HP 归零、双方同时归零、计时结束、或按 <code>L</code></td>
+        <td>正常战斗演出；角色状态机、碰撞、血条、倒计时全部在此状态更新</td>
+      </tr>
+      <tr>
+        <td><code>GAME_OVER</code></td>
+        <td><code>PLAYING</code> 中触发 <code>KO / TIME_OUT / DOUBLE_KO</code></td>
+        <td>结算动画播完后，按 <code>J/K</code> 重开，按 <code>L</code> 回菜单</td>
+        <td>根据 <code>winner + finish_reason</code> 显示 “P1 WIN / P2 WIN / DRAW / TIME OUT”；播放结束音效</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>3. 角色状态机拆分</h2>
+  <p>角色层建议采用“一个主可视状态 + 一个攻击子类型 + 一个结束原因”的方式，而不是把所有动作都堆成独立枚举。这样既能和当前代码里的 <code>fighter_visual_state_t</code>、<code>fighter_attack_command_t</code> 对齐，也方便动画同学按层切分素材。</p>
+
+  <h3>3.1 可视状态优先级</h3>
+  <p>为避免同一帧出现多个状态竞争，角色可视状态优先级统一如下：</p>
+  <pre>KO &gt; HIT &gt; ATTACK &gt; JUMP &gt; GUARD &gt; CROUCH &gt; WALK &gt; IDLE</pre>
+  <p>动画、音效、特效都以这条优先级为准。比如角色在空中被打中，应先播放 <code>HIT</code>；角色 HP 归零时直接切 <code>KO</code>，不再停留在普通受击。</p>
+
+  <h3>3.2 角色核心状态表</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>状态</th>
+        <th>进入条件</th>
+        <th>主要动画要求</th>
+        <th>音效建议</th>
+        <th>退出条件</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>IDLE</code></td>
+        <td>地面无输入、未受击、未攻击、未防御</td>
+        <td>循环待机动画，建议 4-6 帧，带轻微呼吸感</td>
+        <td>无强制音效</td>
+        <td>收到左右/跳跃/下蹲/防御/攻击输入，或进入受击、死亡</td>
+      </tr>
+      <tr>
+        <td><code>WALK</code></td>
+        <td>地面按住 <code>A</code> 或 <code>D</code></td>
+        <td>循环步行动画，建议 6-8 帧；允许根据 <code>facing</code> 镜像</td>
+        <td>可选脚步音，原型阶段可不做</td>
+        <td>方向释放后回 <code>IDLE</code>；跳跃/攻击/防御/受击/死亡时中断</td>
+      </tr>
+      <tr>
+        <td><code>JUMP</code></td>
+        <td>地面按下 <code>W</code>；或处于空中物理阶段</td>
+        <td>至少拆成 起跳 / 空中滞空 / 下落 / 落地 4 段；动画同学可以合并到一个 clip，但要保留落地事件点</td>
+        <td>起跳音、落地音可选；至少保留落地事件</td>
+        <td>落地后根据输入转到 <code>IDLE / WALK / CROUCH / GUARD</code>；空中按攻击可转攻击子状态</td>
+      </tr>
+      <tr>
+        <td><code>CROUCH</code></td>
+        <td>地面按住 <code>S</code></td>
+        <td>建议拆成 蹲下 / 蹲住 / 起身 3 段，最低可先做 蹲住 1 个循环帧</td>
+        <td>无强制音效</td>
+        <td>松开 <code>S</code> 回地面状态；攻击则进入扫腿；受击/死亡优先</td>
+      </tr>
+      <tr>
+        <td><code>GUARD</code></td>
+        <td>地面按住 <code>K</code></td>
+        <td>防御架势需明显收缩轮廓，保证和待机区分；受击时可额外叠加 block flash</td>
+        <td>格挡音效应独立于受击音效</td>
+        <td>松开 <code>K</code> 后回地面状态；被打中保持格挡判定但不切普通 <code>HIT</code></td>
+      </tr>
+      <tr>
+        <td><code>ATTACK</code></td>
+        <td>按下 <code>J</code> 或组合键且攻击冷却为 0</td>
+        <td>统一走攻击主状态，但必须再区分 <code>attack_command</code> 选择具体 clip</td>
+        <td>挥击声、发波声、升龙声、命中声按子状态触发</td>
+        <td>攻击恢复结束后回到对应地面/空中状态；受击/死亡可打断</td>
+      </tr>
+      <tr>
+        <td><code>HIT</code></td>
+        <td>被命中且 HP &gt; 0</td>
+        <td>建议至少做 1 套通用受击动画，若资源够可拆成站立受击/下段受击/空中受击</td>
+        <td>命中音效，必要时叠加轻微受击闪白</td>
+        <td>受击硬直结束后回到合法状态；若 HP 归零立刻转 <code>KO</code></td>
+      </tr>
+      <tr>
+        <td><code>KO</code></td>
+        <td>HP 归零</td>
+        <td>建议拆成 倒地启动 + 倒地停留；不得循环回普通待机</td>
+        <td>KO 音效、胜负播报</td>
+        <td>仅在 round reset 后离开该状态</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>3.3 攻击子状态与切分规范</h3>
+  <p>当前输入方案已经确定如下：</p>
+  <ul>
+    <li><code>J</code>：普通攻击</li>
+    <li><code>A + J</code>：发波</li>
+    <li><code>D + J</code>：升龙</li>
+    <li><code>W + J</code>：跳跃攻击</li>
+    <li><code>W + D + J</code>：前跳攻击</li>
+    <li><code>W + A + J</code>：后跳攻击</li>
+    <li><code>S + J</code>：扫腿</li>
+  </ul>
+  <p>策划和动画协作上，建议每个攻击 clip 都至少标出 <code>Startup / Active / Recovery</code> 三段。原型阶段即使判定逻辑先简化成“攻击按下即命中检测”，动画资源也应该按这三段切，避免以后返工。</p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>攻击类型</th>
+        <th>输入</th>
+        <th>建议动画 clip</th>
+        <th>建议相位切分</th>
+        <th>关键事件点</th>
+        <th>音效建议</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>FIGHTER_ATTACK_NORMAL</code></td>
+        <td><code>J</code></td>
+        <td><code>atk_normal</code></td>
+        <td>Startup 3f / Active 2f / Recovery 5f</td>
+        <td>第 4 帧出拳命中；第 4 帧触发挥击音</td>
+        <td>轻挥击 + 命中音</td>
+      </tr>
+      <tr>
+        <td><code>FIGHTER_ATTACK_FIREBALL</code></td>
+        <td><code>A + J</code></td>
+        <td><code>atk_fireball</code></td>
+        <td>Startup 5f / Active 1f / Recovery 8f</td>
+        <td>Active 首帧生成飞行物或发波特效</td>
+        <td>蓄力/发射音 + 命中音</td>
+      </tr>
+      <tr>
+        <td><code>FIGHTER_ATTACK_DRAGON_PUNCH</code></td>
+        <td><code>D + J</code></td>
+        <td><code>atk_dragon_punch</code></td>
+        <td>Startup 4f / Active 4f / Recovery 10f</td>
+        <td>第 3-4 帧身体上冲；命中特效偏强</td>
+        <td>重挥击音 + 命中音</td>
+      </tr>
+      <tr>
+        <td><code>FIGHTER_ATTACK_JUMP_ATTACK</code></td>
+        <td><code>W + J</code></td>
+        <td><code>atk_jump_neutral</code></td>
+        <td>Startup 2f / Active 3f / 空中恢复到落地</td>
+        <td>落地后强制回 <code>JUMP</code> 的落地段</td>
+        <td>空挥音 + 命中音</td>
+      </tr>
+      <tr>
+        <td><code>FIGHTER_ATTACK_FORWARD_JUMP_ATTACK</code></td>
+        <td><code>W + D + J</code></td>
+        <td><code>atk_jump_forward</code></td>
+        <td>Startup 2f / Active 3f / 空中恢复到落地</td>
+        <td>需要更明显前冲姿态</td>
+        <td>空挥音 + 命中音</td>
+      </tr>
+      <tr>
+        <td><code>FIGHTER_ATTACK_BACK_JUMP_ATTACK</code></td>
+        <td><code>W + A + J</code></td>
+        <td><code>atk_jump_back</code></td>
+        <td>Startup 2f / Active 2f / 空中恢复到落地</td>
+        <td>重心后仰，和前跳攻击区分</td>
+        <td>空挥音 + 命中音</td>
+      </tr>
+      <tr>
+        <td><code>FIGHTER_ATTACK_SWEEP</code></td>
+        <td><code>S + J</code></td>
+        <td><code>atk_sweep</code></td>
+        <td>Startup 4f / Active 3f / Recovery 9f</td>
+        <td>命中判定点在低位；建议对方可用低位受击或倒地</td>
+        <td>下段挥击音 + 命中音</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>4. 音效设计与触发条件</h2>
+  <p>音效不应该散落在动画层单独判断，而是由状态机在关键事件点统一派发。原型阶段建议按优先级实现：</p>
+  <table>
+    <thead>
+      <tr>
+        <th>优先级</th>
+        <th>事件</th>
+        <th>触发条件</th>
+        <th>备注</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>P0</td>
+        <td>菜单 BGM</td>
+        <td>进入 <code>MENU</code> 时启动循环，离开时停止</td>
+        <td>当前仓库已有 <code>Title.wav</code></td>
+      </tr>
+      <tr>
+        <td>P0</td>
+        <td>菜单确认</td>
+        <td>从 <code>MENU</code> 进入 <code>PLAYING</code> 时播放一次</td>
+        <td>当前仓库已有 <code>Credit.wav</code></td>
+      </tr>
+      <tr>
+        <td>P0</td>
+        <td>Game Over</td>
+        <td>进入 <code>GAME_OVER</code> 时播放一次</td>
+        <td>当前仓库已有 <code>Game Over.wav</code></td>
+      </tr>
+      <tr>
+        <td>P1</td>
+        <td>普通挥击</td>
+        <td><code>ATTACK</code> 子状态进入 Active 帧</td>
+        <td>轻攻击通用</td>
+      </tr>
+      <tr>
+        <td>P1</td>
+        <td>发波发射</td>
+        <td><code>FIREBALL</code> 生成投射物帧</td>
+        <td>要和普通挥击区分</td>
+      </tr>
+      <tr>
+        <td>P1</td>
+        <td>升龙重击</td>
+        <td><code>DRAGON_PUNCH</code> Active 首帧</td>
+        <td>应体现爆发力</td>
+      </tr>
+      <tr>
+        <td>P1</td>
+        <td>命中</td>
+        <td>对手进入 <code>HIT</code></td>
+        <td>可按轻/重攻击拆两类</td>
+      </tr>
+      <tr>
+        <td>P1</td>
+        <td>格挡</td>
+        <td>对手按住 <code>K</code> 且成功减伤</td>
+        <td>不要和受击音共用</td>
+      </tr>
+      <tr>
+        <td>P2</td>
+        <td>起跳/落地</td>
+        <td>进入起跳帧、落地事件帧</td>
+        <td>用于增强重量感</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>5. 给动画切分同学的资源交付规范</h2>
+  <p>动画同学不应该自己猜状态机逻辑。状态机负责人需要暴露稳定的 clip 名和事件点，动画同学只负责把素材切成规范资源并回填 metadata。</p>
+
+  <h3>5.1 最低必做 clip 清单</h3>
+  <ul>
+    <li><code>idle</code></li>
+    <li><code>walk</code></li>
+    <li><code>jump_start</code>、<code>jump_air</code>、<code>jump_land</code></li>
+    <li><code>crouch</code></li>
+    <li><code>guard</code></li>
+    <li><code>atk_normal</code></li>
+    <li><code>atk_fireball</code></li>
+    <li><code>atk_dragon_punch</code></li>
+    <li><code>atk_jump_neutral</code>、<code>atk_jump_forward</code>、<code>atk_jump_back</code></li>
+    <li><code>atk_sweep</code></li>
+    <li><code>hit</code></li>
+    <li><code>ko</code></li>
+  </ul>
+
+  <h3>5.2 命名与 metadata 建议</h3>
+  <p>建议每个角色都交一份简单的 <code>json/csv</code> 清单，字段固定如下：</p>
+  <pre>character_id, clip_id, loop, frame_count, pivot_x, pivot_y,
+startup_frame, active_frame_start, active_frame_end,
+sfx_frame, effect_frame, land_frame, notes</pre>
+  <p>例如：</p>
+  <pre>ken, atk_fireball, false, 14, 24, 88, 1, 6, 6, 6, 6, -1, spawn projectile</pre>
+  <p>这里的关键点是：动画同学只标“哪一帧出效果”，真正的碰撞和伤害仍由状态机决定。</p>
+
+  <h2>6. 在 DE1-SoC 中如何暴露状态机给动画/渲染方</h2>
+  <p><strong>原则：</strong> HPS 侧状态机是唯一真源，动画模块只读状态快照，不直接读原始按键。这样 FPGA 渲染、framebuffer 渲染和后续录屏工具都能共用同一套输出。</p>
+
+  <h3>6.1 软件层建议暴露的动画快照</h3>
+  <pre>typedef enum {
+  FIGHTER_ANIM_PHASE_NONE = 0,
+  FIGHTER_ANIM_PHASE_STARTUP = 1,
+  FIGHTER_ANIM_PHASE_ACTIVE = 2,
+  FIGHTER_ANIM_PHASE_RECOVERY = 3
+} fighter_anim_phase_t;
+
+typedef struct {
+  fighter_visual_state_t visual_state;
+  fighter_attack_command_t attack_command;
+  fighter_anim_phase_t anim_phase;
+  uint16_t state_frame;
+  uint8_t facing;
+  uint8_t event_flags;
+} fighter_anim_snapshot_t;</pre>
+
+  <p>其中：</p>
+  <ul>
+    <li><code>visual_state</code> 决定大类动作，例如待机、行走、跳跃、受击</li>
+    <li><code>attack_command</code> 只在 <code>visual_state == ATTACK</code> 时用于选 clip</li>
+    <li><code>anim_phase</code> 让动画和音效知道现在处于 Startup / Active / Recovery</li>
+    <li><code>state_frame</code> 表示进入当前状态后的第几帧，动画同学可据此对齐帧切换</li>
+    <li><code>facing</code> 决定左右镜像</li>
+    <li><code>event_flags</code> 用于一次性事件，例如 <code>HIT</code>、<code>BLOCK</code>、<code>LAND</code>、<code>PROJECTILE_SPAWN</code></li>
+  </ul>
+
+  <h3>6.2 MMIO/寄存器扩展建议</h3>
+  <p>当前仓库已经有：</p>
+  <ul>
+    <li><code>PLAYER1_STATE / PLAYER2_STATE</code>：可视状态</li>
+    <li><code>PLAYER1_FACING / PLAYER2_FACING</code>：朝向</li>
+    <li><code>DEBUG_FLAGS</code>：目前可用来临时打包最后一次攻击类型</li>
+  </ul>
+  <p>为了让动画方真正可用，Phase 3 建议新增以下只读寄存器：</p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>偏移</th>
+        <th>寄存器</th>
+        <th>作用</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>0x38</code></td>
+        <td><code>PLAYER1_ATTACK_CMD</code></td>
+        <td>当前攻击子类型，非攻击时为 0</td>
+      </tr>
+      <tr>
+        <td><code>0x3C</code></td>
+        <td><code>PLAYER2_ATTACK_CMD</code></td>
+        <td>当前攻击子类型，非攻击时为 0</td>
+      </tr>
+      <tr>
+        <td><code>0x40</code></td>
+        <td><code>PLAYER1_STATE_FRAME</code></td>
+        <td>进入当前状态后的帧计数</td>
+      </tr>
+      <tr>
+        <td><code>0x44</code></td>
+        <td><code>PLAYER2_STATE_FRAME</code></td>
+        <td>进入当前状态后的帧计数</td>
+      </tr>
+      <tr>
+        <td><code>0x48</code></td>
+        <td><code>PLAYER1_EVENT_FLAGS</code></td>
+        <td>一次性事件位，例如命中、格挡、落地、发波</td>
+      </tr>
+      <tr>
+        <td><code>0x4C</code></td>
+        <td><code>PLAYER2_EVENT_FLAGS</code></td>
+        <td>一次性事件位，例如命中、格挡、落地、发波</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p>如果寄存器预算紧张，也可以把上述字段压成一个 <code>anim_state_word</code>，但文档和代码中都必须先固定 bit layout，避免动画同学和逻辑同学各自理解不同。</p>
+
+  <h3>6.3 协作边界</h3>
+  <ul>
+    <li>状态机负责人负责：枚举、状态优先级、命中规则、音效事件、状态快照输出</li>
+    <li>动画切分负责人负责：sprite 切分、clip 命名、metadata 标注、镜像规则、锚点统一</li>
+    <li>渲染/硬件负责人负责：根据快照选 clip、推进帧、显示角色与特效，不重写游戏规则</li>
+  </ul>
+
+  <h2>7. Phase 3落地建议</h2>
+  <ol>
+    <li>先按当前代码中的 <code>visual_state</code> 和 <code>attack_command</code> 固定枚举值，不要频繁改名。</li>
+    <li>在状态机里补 <code>finish_reason</code>、<code>state_frame</code>、<code>event_flags</code> 三类字段，优先保证协作接口稳定。</li>
+    <li>动画资源先做“一套角色完整跑通”，确认命名和 metadata 规范后再批量切第二个角色。</li>
+    <li>音效先做 P0，再补攻击/格挡/命中细节，避免音频成为阻塞项。</li>
+  </ol>
+
+  <p>以上方案既能和当前仓库里的 <code>fighter_game</code>、<code>fighter_input</code>、<code>fighter_mmio</code> 保持一致，也足够支撑 Phase 3 的动画切分与 SoC 集成工作。</p>
+</body>
+</html>
