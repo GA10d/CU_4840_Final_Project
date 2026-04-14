@@ -612,6 +612,11 @@ static int fighter_audio_mmio_enable_bridges(fighter_audio_mmio_state_t *state) 
   return 0;
 }
 
+static int fighter_audio_track_is_valid(fighter_audio_track_t track) {
+  return track > FIGHTER_AUDIO_TRACK_NONE &&
+         track <= FIGHTER_AUDIO_TRACK_GAME_OVER;
+}
+
 static void fighter_audio_mmio_set_track_locked(fighter_audio_mmio_state_t *state,
                                                 fighter_audio_track_t track,
                                                 int loop_enabled) {
@@ -619,8 +624,7 @@ static void fighter_audio_mmio_set_track_locked(fighter_audio_mmio_state_t *stat
     return;
   }
 
-  if (track <= FIGHTER_AUDIO_TRACK_NONE ||
-      track >= FIGHTER_AUDIO_TRACK_STORAGE_COUNT ||
+  if (!fighter_audio_track_is_valid(track) ||
       !state->clips[track].samples || state->clips[track].frame_count == 0) {
     state->current_track = FIGHTER_AUDIO_TRACK_NONE;
     state->loop_track = FIGHTER_AUDIO_TRACK_NONE;
@@ -653,8 +657,7 @@ static void fighter_audio_mmio_fill_fifo_locked(fighter_audio_mmio_state_t *stat
   size_t frame_index;
 
   if (!state || !state->audio_regs || !state->playing ||
-      state->current_track <= FIGHTER_AUDIO_TRACK_NONE ||
-      state->current_track >= FIGHTER_AUDIO_TRACK_STORAGE_COUNT) {
+      !fighter_audio_track_is_valid(state->current_track)) {
     return;
   }
 
