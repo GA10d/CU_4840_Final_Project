@@ -112,55 +112,76 @@ static int fighter_audio_spawn_shell(const char *command) {
   return (int)pid;
 }
 
-static int fighter_audio_run_shell(const char *command) {
-  int status;
-
-  if (!command) {
+static int fighter_audio_copy_string(const char *src, char *dst, size_t dst_size) {
+  if (!src || !dst || dst_size == 0) {
     return -1;
   }
 
-  status = system(command);
-  if (status == -1) {
+  if (strlen(src) + 1 > dst_size) {
     return -1;
   }
 
-  if (!WIFEXITED(status)) {
-    return -1;
-  }
-
-  return WEXITSTATUS(status) == 0 ? 0 : -1;
+  memcpy(dst, src, strlen(src) + 1);
+  return 0;
 }
 
-static int fighter_audio_backend_usable(int player_kind) {
-  switch (player_kind) {
-    case FIGHTER_PLAYER_KIND_APLAY:
-      return fighter_find_in_path("aplay") != NULL &&
-             fighter_audio_run_shell("aplay -l >/dev/null 2>&1") == 0;
-    case FIGHTER_PLAYER_KIND_FFPLAY:
-      return fighter_find_in_path("ffplay") != NULL;
-    case FIGHTER_PLAYER_KIND_AFPLAY:
-      return fighter_find_in_path("afplay") != NULL;
-    case FIGHTER_PLAYER_KIND_NONE:
-    default:
+static int fighter_audio_detect_aplay_device(char *buffer, size_t buffer_size) {
+  const char *override;
+  FILE *stream;
+  char line[256];
+  int card;
+  int device;
+
+  if (!buffer || buffer_size == 0 || !fighter_find_in_path("aplay")) {
+    return -1;
+  }
+
+  override = getenv("FIGHTER_AUDIO_DEVICE");
+  if (override && override[0] != '\0') {
+    return fighter_audio_copy_string(override, buffer, buffer_size);
+  }
+
+  stream = popen("aplay -l 2>/dev/null", "r");
+  if (!stream) {
+    return -1;
+  }
+
+  while (fgets(line, sizeof(line), stream)) {
+    if (sscanf(line, "card %d: %*[^,], device %d:", &card, &device) == 2) {
+      snprintf(buffer, buffer_size, "plughw:%d,%d", card, device);
+      (void)pclose(stream);
       return 0;
-  }
-}
-
-static int fighter_audio_pick_player_kind(void) {
-  static const int k_player_priority[] = {
-      FIGHTER_PLAYER_KIND_APLAY,
-      FIGHTER_PLAYER_KIND_FFPLAY,
-      FIGHTER_PLAYER_KIND_AFPLAY,
-  };
-  size_t i;
-
-  for (i = 0; i < sizeof(k_player_priority) / sizeof(k_player_priority[0]); ++i) {
-    if (fighter_audio_backend_usable(k_player_priority[i])) {
-      return k_player_priority[i];
     }
   }
 
-  return FIGHTER_PLAYER_KIND_NONE;
+  (void)pclose(stream);
+  return -1;
+}
+
+static int fighter_audio_prepare_backend(fighter_audio_context_t *context) {
+  if (!context) {
+    return -1;
+  }
+
+  context->aplay_device[0] = '\0';
+  if (fighter_audio_detect_aplay_device(context->aplay_device,
+                                        sizeof(context->aplay_device)) == 0) {
+    context->player_kind = FIGHTER_PLAYER_KIND_APLAY;
+    return 0;
+  }
+
+  if (fighter_find_in_path("ffplay")) {
+    context->player_kind = FIGHTER_PLAYER_KIND_FFPLAY;
+    return 0;
+  }
+
+  if (fighter_find_in_path("afplay")) {
+    context->player_kind = FIGHTER_PLAYER_KIND_AFPLAY;
+    return 0;
+  }
+
+  context->player_kind = FIGHTER_PLAYER_KIND_NONE;
+  return -1;
 }
 
 static void fighter_audio_stop_loop(fighter_audio_context_t *context) {
@@ -177,13 +198,27 @@ static void fighter_audio_stop_loop(fighter_audio_context_t *context) {
   context->looping_track = FIGHTER_AUDIO_TRACK_NONE;
 }
 
-static void fighter_audio_build_once_command(int player_kind,
+static void fighter_audio_build_once_command(
+                                             const fighter_audio_context_t *context,
                                              const char *quoted_path,
                                              char *buffer,
                                              size_t buffer_size) {
-  switch (player_kind) {
+  char quoted_device[128];
+
+  if (!context) {
+    buffer[0] = '\0';
+    return;
+  }
+
+  switch (context->player_kind) {
     case FIGHTER_PLAYER_KIND_APLAY:
-      snprintf(buffer, buffer_size, "aplay -q %s >/dev/null 2>&1", quoted_path);
+      if (fighter_audio_shell_quote(context->aplay_device, quoted_device,
+                                    sizeof(quoted_device)) != 0) {
+        buffer[0] = '\0';
+        break;
+      }
+      snprintf(buffer, buffer_size, "aplay -q -D %s %s >/dev/null 2>&1",
+               quoted_device, quoted_path);
       break;
     case FIGHTER_PLAYER_KIND_FFPLAY:
       snprintf(buffer, buffer_size,
@@ -199,14 +234,28 @@ static void fighter_audio_build_once_command(int player_kind,
   }
 }
 
-static void fighter_audio_build_loop_command(int player_kind,
+static void fighter_audio_build_loop_command(
+                                             const fighter_audio_context_t *context,
                                              const char *quoted_path,
                                              char *buffer,
                                              size_t buffer_size) {
-  switch (player_kind) {
+  char quoted_device[128];
+
+  if (!context) {
+    buffer[0] = '\0';
+    return;
+  }
+
+  switch (context->player_kind) {
     case FIGHTER_PLAYER_KIND_APLAY:
+      if (fighter_audio_shell_quote(context->aplay_device, quoted_device,
+                                    sizeof(quoted_device)) != 0) {
+        buffer[0] = '\0';
+        break;
+      }
       snprintf(buffer, buffer_size,
-               "while aplay -q %s >/dev/null 2>&1; do :; done", quoted_path);
+               "while aplay -q -D %s %s >/dev/null 2>&1; do :; done",
+               quoted_device, quoted_path);
       break;
     case FIGHTER_PLAYER_KIND_FFPLAY:
       snprintf(buffer, buffer_size,
@@ -244,7 +293,7 @@ static void fighter_audio_start_loop(fighter_audio_context_t *context,
     return;
   }
 
-  fighter_audio_build_loop_command(context->player_kind, quoted_path, command,
+  fighter_audio_build_loop_command(context, quoted_path, command,
                                    sizeof(command));
   if (command[0] == '\0') {
     return;
@@ -273,7 +322,7 @@ static void fighter_audio_play_once(fighter_audio_context_t *context,
     return;
   }
 
-  fighter_audio_build_once_command(context->player_kind, quoted_path, command,
+  fighter_audio_build_once_command(context, quoted_path, command,
                                    sizeof(command));
   if (command[0] == '\0') {
     return;
@@ -329,6 +378,31 @@ const char *fighter_audio_track_path(fighter_audio_track_t track) {
   }
 }
 
+const char *fighter_audio_backend_name(const fighter_audio_context_t *context) {
+  static char description[128];
+
+  if (!context || context->backend == FIGHTER_AUDIO_BACKEND_DISABLED) {
+    return "disabled";
+  }
+
+  switch (context->player_kind) {
+    case FIGHTER_PLAYER_KIND_APLAY:
+      if (context->aplay_device[0] != '\0') {
+        snprintf(description, sizeof(description), "aplay (%s)",
+                 context->aplay_device);
+        return description;
+      }
+      return "aplay";
+    case FIGHTER_PLAYER_KIND_FFPLAY:
+      return "ffplay";
+    case FIGHTER_PLAYER_KIND_AFPLAY:
+      return "afplay";
+    case FIGHTER_PLAYER_KIND_NONE:
+    default:
+      return "command";
+  }
+}
+
 void fighter_audio_options_init(fighter_audio_options_t *options) {
   if (!options) {
     return;
@@ -353,9 +427,8 @@ int fighter_audio_init(fighter_audio_context_t *context,
     return 0;
   }
 
-  context->player_kind = fighter_audio_pick_player_kind();
-
-  if (context->player_kind != FIGHTER_PLAYER_KIND_NONE) {
+  if (fighter_audio_prepare_backend(context) == 0 &&
+      context->player_kind != FIGHTER_PLAYER_KIND_NONE) {
     context->backend = FIGHTER_AUDIO_BACKEND_COMMAND;
   } else {
     fprintf(stderr, "audio disabled: no usable playback backend found\n");

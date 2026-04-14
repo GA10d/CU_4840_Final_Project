@@ -218,9 +218,7 @@ int main(int argc, char **argv) {
   printf("  input mode: %s\n",
          input_mode == FIGHTER_INPUT_MODE_USB ? "usb" : fighter_script_name(script_kind));
   printf("  renderer  : %s\n", fighter_renderer_backend_name(&renderer));
-  printf("  audio     : %s\n",
-         audio_options.enable_command_audio ? "command-backend enabled"
-                                            : "disabled");
+  printf("  audio     : %s\n", fighter_audio_backend_name(&audio_context));
 
   frame_index = 0;
   while (g_running && (max_frames < 0 || frame_index < max_frames)) {

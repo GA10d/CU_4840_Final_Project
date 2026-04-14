@@ -49,6 +49,7 @@ typedef struct {
   int backend_logged;
   int player_kind;
   int loop_pid;
+  char aplay_device[64];
 } fighter_audio_context_t;
 
 void fighter_audio_command_list_clear(fighter_audio_command_list_t *list);
@@ -58,6 +59,7 @@ int fighter_audio_command_list_push(fighter_audio_command_list_t *list,
 
 const char *fighter_audio_track_name(fighter_audio_track_t track);
 const char *fighter_audio_track_path(fighter_audio_track_t track);
+const char *fighter_audio_backend_name(const fighter_audio_context_t *context);
 
 void fighter_audio_options_init(fighter_audio_options_t *options);
 int fighter_audio_init(fighter_audio_context_t *context,
