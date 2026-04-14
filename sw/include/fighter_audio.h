@@ -35,7 +35,8 @@ typedef struct {
 
 typedef enum {
   FIGHTER_AUDIO_BACKEND_DISABLED = 0,
-  FIGHTER_AUDIO_BACKEND_COMMAND
+  FIGHTER_AUDIO_BACKEND_COMMAND,
+  FIGHTER_AUDIO_BACKEND_MMIO
 } fighter_audio_backend_t;
 
 typedef struct {
@@ -50,6 +51,7 @@ typedef struct {
   int player_kind;
   int loop_pid;
   char aplay_device[64];
+  void *backend_data;
 } fighter_audio_context_t;
 
 void fighter_audio_command_list_clear(fighter_audio_command_list_t *list);

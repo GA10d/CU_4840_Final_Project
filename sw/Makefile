@@ -11,6 +11,8 @@ HAVE_LIBUSB := $(shell command -v $(PKG_CONFIG) >/dev/null 2>&1 && \
 CPPFLAGS += -Iinclude
 CPPFLAGS += -DFIGHTER_ENABLE_LIBUSB=$(HAVE_LIBUSB)
 CFLAGS += -std=c11 -Wall -Wextra -Werror -D_POSIX_C_SOURCE=200809L
+CFLAGS += -pthread
+LDFLAGS += -pthread
 
 COMMON_SRCS := \
 	audio/fighter_audio.c \

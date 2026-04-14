@@ -1,12 +1,18 @@
 #include "fighter_audio.h"
 
+#include <errno.h>
+#include <fcntl.h>
+#include <pthread.h>
 #include <signal.h>
+#include <stdint.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/mman.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <time.h>
 #include <unistd.h>
 
 enum {
@@ -15,6 +21,44 @@ enum {
   FIGHTER_PLAYER_KIND_FFPLAY,
   FIGHTER_PLAYER_KIND_AFPLAY
 };
+
+enum {
+  FIGHTER_AUDIO_TRACK_STORAGE_COUNT = FIGHTER_AUDIO_TRACK_GAME_OVER + 1
+};
+
+enum {
+  FIGHTER_AUDIO_MMIO_TARGET_RATE = 48000,
+  FIGHTER_AUDIO_MMIO_CONTROL_CLEAR_READ = 1 << 2,
+  FIGHTER_AUDIO_MMIO_CONTROL_CLEAR_WRITE = 1 << 3
+};
+
+typedef struct {
+  int16_t *samples;
+  size_t frame_count;
+} fighter_audio_clip_t;
+
+typedef struct {
+  pthread_t thread;
+  pthread_mutex_t mutex;
+  int mutex_initialized;
+  int thread_started;
+  int stop_requested;
+  int mem_fd;
+  void *bridge_map;
+  size_t bridge_map_length;
+  volatile uint32_t *bridge_reset_reg;
+  void *audio_map;
+  size_t audio_map_length;
+  volatile uint32_t *audio_regs;
+  fighter_audio_clip_t clips[FIGHTER_AUDIO_TRACK_STORAGE_COUNT];
+  fighter_audio_track_t current_track;
+  fighter_audio_track_t loop_track;
+  size_t current_frame;
+  int playing;
+} fighter_audio_mmio_state_t;
+
+static const off_t k_fighter_audio_bridge_reset_addr = (off_t)0xFFD0501C;
+static const off_t k_fighter_audio_mmio_addr = (off_t)0xFF203040;
 
 static const char *fighter_find_in_path(const char *name) {
   static char resolved_path[512];
@@ -158,48 +202,7 @@ static int fighter_audio_detect_aplay_device(char *buffer, size_t buffer_size) {
   return -1;
 }
 
-static int fighter_audio_prepare_backend(fighter_audio_context_t *context) {
-  if (!context) {
-    return -1;
-  }
-
-  context->aplay_device[0] = '\0';
-  if (fighter_audio_detect_aplay_device(context->aplay_device,
-                                        sizeof(context->aplay_device)) == 0) {
-    context->player_kind = FIGHTER_PLAYER_KIND_APLAY;
-    return 0;
-  }
-
-  if (fighter_find_in_path("ffplay")) {
-    context->player_kind = FIGHTER_PLAYER_KIND_FFPLAY;
-    return 0;
-  }
-
-  if (fighter_find_in_path("afplay")) {
-    context->player_kind = FIGHTER_PLAYER_KIND_AFPLAY;
-    return 0;
-  }
-
-  context->player_kind = FIGHTER_PLAYER_KIND_NONE;
-  return -1;
-}
-
-static void fighter_audio_stop_loop(fighter_audio_context_t *context) {
-  pid_t pid;
-
-  if (!context || context->loop_pid <= 0) {
-    return;
-  }
-
-  pid = (pid_t)context->loop_pid;
-  kill(-pid, SIGTERM);
-  waitpid(pid, NULL, 0);
-  context->loop_pid = 0;
-  context->looping_track = FIGHTER_AUDIO_TRACK_NONE;
-}
-
-static void fighter_audio_build_once_command(
-                                             const fighter_audio_context_t *context,
+static void fighter_audio_build_once_command(const fighter_audio_context_t *context,
                                              const char *quoted_path,
                                              char *buffer,
                                              size_t buffer_size) {
@@ -234,8 +237,7 @@ static void fighter_audio_build_once_command(
   }
 }
 
-static void fighter_audio_build_loop_command(
-                                             const fighter_audio_context_t *context,
+static void fighter_audio_build_loop_command(const fighter_audio_context_t *context,
                                              const char *quoted_path,
                                              char *buffer,
                                              size_t buffer_size) {
@@ -273,8 +275,550 @@ static void fighter_audio_build_loop_command(
   }
 }
 
-static void fighter_audio_start_loop(fighter_audio_context_t *context,
-                                     fighter_audio_track_t track) {
+static int fighter_audio_prepare_command_backend(fighter_audio_context_t *context) {
+  if (!context) {
+    return -1;
+  }
+
+  context->aplay_device[0] = '\0';
+  if (fighter_audio_detect_aplay_device(context->aplay_device,
+                                        sizeof(context->aplay_device)) == 0) {
+    context->player_kind = FIGHTER_PLAYER_KIND_APLAY;
+    return 0;
+  }
+
+  if (fighter_find_in_path("ffplay")) {
+    context->player_kind = FIGHTER_PLAYER_KIND_FFPLAY;
+    return 0;
+  }
+
+  if (fighter_find_in_path("afplay")) {
+    context->player_kind = FIGHTER_PLAYER_KIND_AFPLAY;
+    return 0;
+  }
+
+  context->player_kind = FIGHTER_PLAYER_KIND_NONE;
+  return -1;
+}
+
+static void fighter_audio_clip_reset(fighter_audio_clip_t *clip) {
+  if (!clip) {
+    return;
+  }
+
+  free(clip->samples);
+  clip->samples = NULL;
+  clip->frame_count = 0;
+}
+
+static uint16_t fighter_audio_read_le16(const unsigned char *src) {
+  return (uint16_t)src[0] | (uint16_t)((uint16_t)src[1] << 8);
+}
+
+static uint32_t fighter_audio_read_le32(const unsigned char *src) {
+  return (uint32_t)src[0] | ((uint32_t)src[1] << 8) |
+         ((uint32_t)src[2] << 16) | ((uint32_t)src[3] << 24);
+}
+
+static int fighter_audio_resample_pcm16(fighter_audio_clip_t *clip,
+                                        const int16_t *src_samples,
+                                        size_t src_frame_count,
+                                        uint16_t src_channels,
+                                        uint32_t src_rate) {
+  int16_t *dst_samples;
+  size_t dst_frame_count;
+  size_t i;
+
+  if (!clip || !src_samples || src_frame_count == 0 || src_rate == 0 ||
+      (src_channels != 1 && src_channels != 2)) {
+    return -1;
+  }
+
+  dst_frame_count =
+      (size_t)(((uint64_t)src_frame_count * FIGHTER_AUDIO_MMIO_TARGET_RATE +
+                src_rate - 1) /
+               src_rate);
+  if (dst_frame_count == 0) {
+    dst_frame_count = 1;
+  }
+
+  dst_samples =
+      (int16_t *)malloc(dst_frame_count * 2U * sizeof(int16_t));
+  if (!dst_samples) {
+    return -1;
+  }
+
+  for (i = 0; i < dst_frame_count; ++i) {
+    uint64_t src_position_num = (uint64_t)i * src_rate;
+    size_t src_index = (size_t)(src_position_num / FIGHTER_AUDIO_MMIO_TARGET_RATE);
+    uint32_t frac =
+        (uint32_t)(src_position_num % FIGHTER_AUDIO_MMIO_TARGET_RATE);
+    size_t next_index;
+    int channel;
+
+    if (src_index >= src_frame_count) {
+      src_index = src_frame_count - 1;
+    }
+    next_index =
+        src_index + 1 < src_frame_count ? src_index + 1 : src_index;
+
+    for (channel = 0; channel < 2; ++channel) {
+      int src_channel = src_channels == 1 ? 0 : channel;
+      int32_t sample_a =
+          src_samples[src_index * src_channels + (size_t)src_channel];
+      int32_t sample_b =
+          src_samples[next_index * src_channels + (size_t)src_channel];
+      int32_t blended =
+          sample_a +
+          (int32_t)(((int64_t)(sample_b - sample_a) * frac) /
+                    FIGHTER_AUDIO_MMIO_TARGET_RATE);
+      dst_samples[i * 2U + (size_t)channel] = (int16_t)blended;
+    }
+  }
+
+  clip->samples = dst_samples;
+  clip->frame_count = dst_frame_count;
+  return 0;
+}
+
+static int fighter_audio_clip_load_wav(fighter_audio_clip_t *clip,
+                                       const char *path) {
+  FILE *stream;
+  unsigned char header[12];
+  unsigned char chunk_header[8];
+  unsigned char *data_bytes = NULL;
+  size_t data_size = 0;
+  uint16_t audio_format = 0;
+  uint16_t channel_count = 0;
+  uint16_t bits_per_sample = 0;
+  uint32_t sample_rate = 0;
+  int have_format = 0;
+  int have_data = 0;
+  int result = -1;
+
+  if (!clip || !path) {
+    return -1;
+  }
+
+  stream = fopen(path, "rb");
+  if (!stream) {
+    return -1;
+  }
+
+  if (fread(header, 1, sizeof(header), stream) != sizeof(header) ||
+      memcmp(header, "RIFF", 4) != 0 || memcmp(header + 8, "WAVE", 4) != 0) {
+    fclose(stream);
+    return -1;
+  }
+
+  while (fread(chunk_header, 1, sizeof(chunk_header), stream) ==
+         sizeof(chunk_header)) {
+    uint32_t chunk_size = fighter_audio_read_le32(chunk_header + 4);
+
+    if (memcmp(chunk_header, "fmt ", 4) == 0) {
+      unsigned char *fmt_data;
+
+      if (chunk_size < 16) {
+        break;
+      }
+      fmt_data = (unsigned char *)malloc(chunk_size);
+      if (!fmt_data) {
+        break;
+      }
+      if (fread(fmt_data, 1, chunk_size, stream) != chunk_size) {
+        free(fmt_data);
+        break;
+      }
+
+      audio_format = fighter_audio_read_le16(fmt_data);
+      channel_count = fighter_audio_read_le16(fmt_data + 2);
+      sample_rate = fighter_audio_read_le32(fmt_data + 4);
+      bits_per_sample = fighter_audio_read_le16(fmt_data + 14);
+      have_format = 1;
+      free(fmt_data);
+    } else if (memcmp(chunk_header, "data", 4) == 0) {
+      data_bytes = (unsigned char *)malloc(chunk_size);
+      if (!data_bytes) {
+        break;
+      }
+      if (fread(data_bytes, 1, chunk_size, stream) != chunk_size) {
+        free(data_bytes);
+        data_bytes = NULL;
+        break;
+      }
+      data_size = chunk_size;
+      have_data = 1;
+    } else {
+      if (fseek(stream, (long)chunk_size, SEEK_CUR) != 0) {
+        break;
+      }
+    }
+
+    if ((chunk_size & 1U) != 0U) {
+      if (fseek(stream, 1L, SEEK_CUR) != 0) {
+        break;
+      }
+    }
+
+    if (have_format && have_data) {
+      size_t frame_count;
+
+      if (audio_format != 1 || bits_per_sample != 16 ||
+          (channel_count != 1 && channel_count != 2) || sample_rate == 0) {
+        break;
+      }
+
+      frame_count = data_size / ((size_t)channel_count * sizeof(int16_t));
+      if (frame_count == 0) {
+        break;
+      }
+
+      fighter_audio_clip_reset(clip);
+      result = fighter_audio_resample_pcm16(
+          clip, (const int16_t *)data_bytes, frame_count, channel_count,
+          sample_rate);
+      break;
+    }
+  }
+
+  free(data_bytes);
+  fclose(stream);
+  return result;
+}
+
+static int fighter_audio_map_physical(int mem_fd,
+                                      off_t physical_addr,
+                                      size_t span,
+                                      void **map_base,
+                                      size_t *map_length,
+                                      volatile uint32_t **register_base) {
+  long page_size;
+  off_t page_base;
+  off_t page_offset;
+  size_t length;
+  void *mapped;
+
+  if (mem_fd < 0 || !map_base || !map_length || !register_base || span == 0) {
+    return -1;
+  }
+
+  page_size = sysconf(_SC_PAGESIZE);
+  if (page_size <= 0) {
+    return -1;
+  }
+
+  page_base = physical_addr & ~((off_t)page_size - 1);
+  page_offset = physical_addr - page_base;
+  length = (size_t)page_offset + span;
+  length = (length + (size_t)page_size - 1U) & ~((size_t)page_size - 1U);
+
+  mapped = mmap(NULL, length, PROT_READ | PROT_WRITE, MAP_SHARED, mem_fd,
+                page_base);
+  if (mapped == MAP_FAILED) {
+    return -1;
+  }
+
+  *map_base = mapped;
+  *map_length = length;
+  *register_base =
+      (volatile uint32_t *)((unsigned char *)mapped + (size_t)page_offset);
+  return 0;
+}
+
+static void fighter_audio_mmio_unmap_region(void **map_base, size_t *map_length) {
+  if (!map_base || !map_length || !*map_base || *map_length == 0) {
+    return;
+  }
+
+  munmap(*map_base, *map_length);
+  *map_base = NULL;
+  *map_length = 0;
+}
+
+static void fighter_audio_mmio_reset_clips(fighter_audio_mmio_state_t *state) {
+  int i;
+
+  if (!state) {
+    return;
+  }
+
+  for (i = 0; i < FIGHTER_AUDIO_TRACK_STORAGE_COUNT; ++i) {
+    fighter_audio_clip_reset(&state->clips[i]);
+  }
+}
+
+static int fighter_audio_mmio_load_clips(fighter_audio_mmio_state_t *state) {
+  int track;
+
+  if (!state) {
+    return -1;
+  }
+
+  for (track = 1; track < FIGHTER_AUDIO_TRACK_STORAGE_COUNT; ++track) {
+    if (fighter_audio_clip_load_wav(&state->clips[track],
+                                    fighter_audio_track_path(
+                                        (fighter_audio_track_t)track)) != 0) {
+      fighter_audio_mmio_reset_clips(state);
+      return -1;
+    }
+  }
+
+  return 0;
+}
+
+static void fighter_audio_mmio_clear_fifos(fighter_audio_mmio_state_t *state) {
+  if (!state || !state->audio_regs) {
+    return;
+  }
+
+  state->audio_regs[0] =
+      FIGHTER_AUDIO_MMIO_CONTROL_CLEAR_READ |
+      FIGHTER_AUDIO_MMIO_CONTROL_CLEAR_WRITE;
+  state->audio_regs[0] = 0;
+}
+
+static int fighter_audio_mmio_probe(fighter_audio_mmio_state_t *state) {
+  uint32_t fifospace;
+  uint32_t write_space_left;
+  uint32_t write_space_right;
+
+  if (!state || !state->audio_regs) {
+    return -1;
+  }
+
+  fighter_audio_mmio_clear_fifos(state);
+  fifospace = state->audio_regs[1];
+  write_space_left = (fifospace >> 24) & 0xFFU;
+  write_space_right = (fifospace >> 16) & 0xFFU;
+
+  if (write_space_left == 0 || write_space_left > 128 ||
+      write_space_right == 0 || write_space_right > 128) {
+    return -1;
+  }
+
+  return 0;
+}
+
+static int fighter_audio_mmio_enable_bridges(fighter_audio_mmio_state_t *state) {
+  uint32_t value;
+
+  if (!state || !state->bridge_reset_reg) {
+    return -1;
+  }
+
+  value = *state->bridge_reset_reg;
+  value &= ~0x3U;
+  *state->bridge_reset_reg = value;
+  return 0;
+}
+
+static void fighter_audio_mmio_set_track_locked(fighter_audio_mmio_state_t *state,
+                                                fighter_audio_track_t track,
+                                                int loop_enabled) {
+  if (!state) {
+    return;
+  }
+
+  if (track <= FIGHTER_AUDIO_TRACK_NONE ||
+      track >= FIGHTER_AUDIO_TRACK_STORAGE_COUNT ||
+      !state->clips[track].samples || state->clips[track].frame_count == 0) {
+    state->current_track = FIGHTER_AUDIO_TRACK_NONE;
+    state->loop_track = FIGHTER_AUDIO_TRACK_NONE;
+    state->current_frame = 0;
+    state->playing = 0;
+    return;
+  }
+
+  state->current_track = track;
+  state->loop_track = loop_enabled ? track : FIGHTER_AUDIO_TRACK_NONE;
+  state->current_frame = 0;
+  state->playing = 1;
+}
+
+static void fighter_audio_mmio_stop_locked(fighter_audio_mmio_state_t *state) {
+  if (!state) {
+    return;
+  }
+
+  state->current_track = FIGHTER_AUDIO_TRACK_NONE;
+  state->loop_track = FIGHTER_AUDIO_TRACK_NONE;
+  state->current_frame = 0;
+  state->playing = 0;
+}
+
+static void fighter_audio_mmio_fill_fifo_locked(fighter_audio_mmio_state_t *state) {
+  fighter_audio_clip_t *clip;
+  uint32_t fifospace;
+  size_t writable_frames;
+  size_t frame_index;
+
+  if (!state || !state->audio_regs || !state->playing ||
+      state->current_track <= FIGHTER_AUDIO_TRACK_NONE ||
+      state->current_track >= FIGHTER_AUDIO_TRACK_STORAGE_COUNT) {
+    return;
+  }
+
+  clip = &state->clips[state->current_track];
+  if (!clip->samples || clip->frame_count == 0) {
+    fighter_audio_mmio_stop_locked(state);
+    return;
+  }
+
+  fifospace = state->audio_regs[1];
+  writable_frames = (size_t)((fifospace >> 24) & 0xFFU);
+  if (((fifospace >> 16) & 0xFFU) < writable_frames) {
+    writable_frames = (size_t)((fifospace >> 16) & 0xFFU);
+  }
+
+  for (frame_index = 0; frame_index < writable_frames; ++frame_index) {
+    int16_t left_sample;
+    int16_t right_sample;
+
+    if (state->current_frame >= clip->frame_count) {
+      if (state->loop_track == state->current_track) {
+        state->current_frame = 0;
+      } else {
+        fighter_audio_mmio_stop_locked(state);
+        break;
+      }
+    }
+
+    left_sample = clip->samples[state->current_frame * 2U];
+    right_sample = clip->samples[state->current_frame * 2U + 1U];
+    state->audio_regs[2] = (uint32_t)((int32_t)left_sample * 65536);
+    state->audio_regs[3] = (uint32_t)((int32_t)right_sample * 65536);
+    state->current_frame++;
+  }
+}
+
+static void *fighter_audio_mmio_thread_main(void *opaque) {
+  fighter_audio_mmio_state_t *state = (fighter_audio_mmio_state_t *)opaque;
+  struct timespec delay;
+
+  delay.tv_sec = 0;
+  delay.tv_nsec = 1000000L;
+
+  while (1) {
+    pthread_mutex_lock(&state->mutex);
+    if (state->stop_requested) {
+      pthread_mutex_unlock(&state->mutex);
+      break;
+    }
+    fighter_audio_mmio_fill_fifo_locked(state);
+    pthread_mutex_unlock(&state->mutex);
+    nanosleep(&delay, NULL);
+  }
+
+  return NULL;
+}
+
+static void fighter_audio_mmio_destroy(fighter_audio_mmio_state_t *state) {
+  if (!state) {
+    return;
+  }
+
+  if (state->thread_started) {
+    pthread_mutex_lock(&state->mutex);
+    state->stop_requested = 1;
+    pthread_mutex_unlock(&state->mutex);
+    pthread_join(state->thread, NULL);
+  }
+
+  fighter_audio_mmio_clear_fifos(state);
+  fighter_audio_mmio_reset_clips(state);
+  fighter_audio_mmio_unmap_region(&state->audio_map, &state->audio_map_length);
+  fighter_audio_mmio_unmap_region(&state->bridge_map, &state->bridge_map_length);
+  if (state->mem_fd >= 0) {
+    close(state->mem_fd);
+  }
+  if (state->mutex_initialized) {
+    pthread_mutex_destroy(&state->mutex);
+  }
+  free(state);
+}
+
+static int fighter_audio_mmio_init(fighter_audio_context_t *context) {
+  fighter_audio_mmio_state_t *state;
+
+  if (!context) {
+    return -1;
+  }
+
+  state = (fighter_audio_mmio_state_t *)calloc(1, sizeof(*state));
+  if (!state) {
+    return -1;
+  }
+
+  state->mem_fd = -1;
+  if (pthread_mutex_init(&state->mutex, NULL) != 0) {
+    fighter_audio_mmio_destroy(state);
+    return -1;
+  }
+  state->mutex_initialized = 1;
+
+  state->mem_fd = open("/dev/mem", O_RDWR | O_SYNC);
+  if (state->mem_fd < 0) {
+    fighter_audio_mmio_destroy(state);
+    return -1;
+  }
+
+  if (fighter_audio_map_physical(state->mem_fd, k_fighter_audio_bridge_reset_addr,
+                                 sizeof(uint32_t), &state->bridge_map,
+                                 &state->bridge_map_length,
+                                 &state->bridge_reset_reg) != 0) {
+    fighter_audio_mmio_destroy(state);
+    return -1;
+  }
+  if (fighter_audio_mmio_enable_bridges(state) != 0) {
+    fighter_audio_mmio_destroy(state);
+    return -1;
+  }
+
+  if (fighter_audio_map_physical(state->mem_fd, k_fighter_audio_mmio_addr,
+                                 4U * sizeof(uint32_t), &state->audio_map,
+                                 &state->audio_map_length,
+                                 &state->audio_regs) != 0) {
+    fighter_audio_mmio_destroy(state);
+    return -1;
+  }
+  if (fighter_audio_mmio_probe(state) != 0) {
+    fighter_audio_mmio_destroy(state);
+    return -1;
+  }
+
+  if (fighter_audio_mmio_load_clips(state) != 0) {
+    fighter_audio_mmio_destroy(state);
+    return -1;
+  }
+
+  if (pthread_create(&state->thread, NULL, fighter_audio_mmio_thread_main,
+                     state) != 0) {
+    fighter_audio_mmio_destroy(state);
+    return -1;
+  }
+  state->thread_started = 1;
+
+  context->backend = FIGHTER_AUDIO_BACKEND_MMIO;
+  context->backend_data = state;
+  return 0;
+}
+
+static void fighter_audio_stop_loop_command(fighter_audio_context_t *context) {
+  pid_t pid;
+
+  if (!context || context->loop_pid <= 0) {
+    return;
+  }
+
+  pid = (pid_t)context->loop_pid;
+  kill(-pid, SIGTERM);
+  waitpid(pid, NULL, 0);
+  context->loop_pid = 0;
+  context->looping_track = FIGHTER_AUDIO_TRACK_NONE;
+}
+
+static void fighter_audio_start_loop_command(fighter_audio_context_t *context,
+                                             fighter_audio_track_t track) {
   const char *path;
   char quoted_path[512];
   char command[768];
@@ -289,7 +833,8 @@ static void fighter_audio_start_loop(fighter_audio_context_t *context,
   }
 
   path = fighter_audio_track_path(track);
-  if (!path || fighter_audio_shell_quote(path, quoted_path, sizeof(quoted_path)) != 0) {
+  if (!path || fighter_audio_shell_quote(path, quoted_path,
+                                         sizeof(quoted_path)) != 0) {
     return;
   }
 
@@ -299,7 +844,7 @@ static void fighter_audio_start_loop(fighter_audio_context_t *context,
     return;
   }
 
-  fighter_audio_stop_loop(context);
+  fighter_audio_stop_loop_command(context);
   pid = fighter_audio_spawn_shell(command);
   if (pid > 0) {
     context->loop_pid = pid;
@@ -307,8 +852,8 @@ static void fighter_audio_start_loop(fighter_audio_context_t *context,
   }
 }
 
-static void fighter_audio_play_once(fighter_audio_context_t *context,
-                                    fighter_audio_track_t track) {
+static void fighter_audio_play_once_command(fighter_audio_context_t *context,
+                                            fighter_audio_track_t track) {
   const char *path;
   char quoted_path[512];
   char command[768];
@@ -318,7 +863,8 @@ static void fighter_audio_play_once(fighter_audio_context_t *context,
   }
 
   path = fighter_audio_track_path(track);
-  if (!path || fighter_audio_shell_quote(path, quoted_path, sizeof(quoted_path)) != 0) {
+  if (!path || fighter_audio_shell_quote(path, quoted_path,
+                                         sizeof(quoted_path)) != 0) {
     return;
   }
 
@@ -329,6 +875,96 @@ static void fighter_audio_play_once(fighter_audio_context_t *context,
   }
 
   (void)fighter_audio_spawn_shell(command);
+}
+
+static void fighter_audio_stop_loop_mmio(fighter_audio_context_t *context) {
+  fighter_audio_mmio_state_t *state;
+
+  if (!context || context->backend != FIGHTER_AUDIO_BACKEND_MMIO ||
+      !context->backend_data) {
+    return;
+  }
+
+  state = (fighter_audio_mmio_state_t *)context->backend_data;
+  pthread_mutex_lock(&state->mutex);
+  fighter_audio_mmio_stop_locked(state);
+  fighter_audio_mmio_clear_fifos(state);
+  pthread_mutex_unlock(&state->mutex);
+  context->looping_track = FIGHTER_AUDIO_TRACK_NONE;
+}
+
+static void fighter_audio_start_loop_mmio(fighter_audio_context_t *context,
+                                          fighter_audio_track_t track) {
+  fighter_audio_mmio_state_t *state;
+
+  if (!context || context->backend != FIGHTER_AUDIO_BACKEND_MMIO ||
+      !context->backend_data) {
+    return;
+  }
+
+  state = (fighter_audio_mmio_state_t *)context->backend_data;
+  pthread_mutex_lock(&state->mutex);
+  fighter_audio_mmio_set_track_locked(state, track, 1);
+  fighter_audio_mmio_clear_fifos(state);
+  fighter_audio_mmio_fill_fifo_locked(state);
+  pthread_mutex_unlock(&state->mutex);
+  context->looping_track = track;
+}
+
+static void fighter_audio_play_once_mmio(fighter_audio_context_t *context,
+                                         fighter_audio_track_t track) {
+  fighter_audio_mmio_state_t *state;
+
+  if (!context || context->backend != FIGHTER_AUDIO_BACKEND_MMIO ||
+      !context->backend_data) {
+    return;
+  }
+
+  state = (fighter_audio_mmio_state_t *)context->backend_data;
+  pthread_mutex_lock(&state->mutex);
+  fighter_audio_mmio_set_track_locked(state, track, 0);
+  fighter_audio_mmio_clear_fifos(state);
+  fighter_audio_mmio_fill_fifo_locked(state);
+  pthread_mutex_unlock(&state->mutex);
+  context->looping_track = FIGHTER_AUDIO_TRACK_NONE;
+}
+
+static void fighter_audio_start_loop(fighter_audio_context_t *context,
+                                     fighter_audio_track_t track) {
+  if (!context) {
+    return;
+  }
+
+  if (context->backend == FIGHTER_AUDIO_BACKEND_MMIO) {
+    fighter_audio_start_loop_mmio(context, track);
+  } else if (context->backend == FIGHTER_AUDIO_BACKEND_COMMAND) {
+    fighter_audio_start_loop_command(context, track);
+  }
+}
+
+static void fighter_audio_stop_loop(fighter_audio_context_t *context) {
+  if (!context) {
+    return;
+  }
+
+  if (context->backend == FIGHTER_AUDIO_BACKEND_MMIO) {
+    fighter_audio_stop_loop_mmio(context);
+  } else if (context->backend == FIGHTER_AUDIO_BACKEND_COMMAND) {
+    fighter_audio_stop_loop_command(context);
+  }
+}
+
+static void fighter_audio_play_once(fighter_audio_context_t *context,
+                                    fighter_audio_track_t track) {
+  if (!context) {
+    return;
+  }
+
+  if (context->backend == FIGHTER_AUDIO_BACKEND_MMIO) {
+    fighter_audio_play_once_mmio(context, track);
+  } else if (context->backend == FIGHTER_AUDIO_BACKEND_COMMAND) {
+    fighter_audio_play_once_command(context, track);
+  }
 }
 
 void fighter_audio_command_list_clear(fighter_audio_command_list_t *list) {
@@ -385,21 +1021,31 @@ const char *fighter_audio_backend_name(const fighter_audio_context_t *context) {
     return "disabled";
   }
 
-  switch (context->player_kind) {
-    case FIGHTER_PLAYER_KIND_APLAY:
-      if (context->aplay_device[0] != '\0') {
-        snprintf(description, sizeof(description), "aplay (%s)",
-                 context->aplay_device);
-        return description;
+  switch (context->backend) {
+    case FIGHTER_AUDIO_BACKEND_MMIO:
+      snprintf(description, sizeof(description), "wm8731-mmio (0x%08lX)",
+               (unsigned long)k_fighter_audio_mmio_addr);
+      return description;
+    case FIGHTER_AUDIO_BACKEND_COMMAND:
+      switch (context->player_kind) {
+        case FIGHTER_PLAYER_KIND_APLAY:
+          if (context->aplay_device[0] != '\0') {
+            snprintf(description, sizeof(description), "aplay (%s)",
+                     context->aplay_device);
+            return description;
+          }
+          return "aplay";
+        case FIGHTER_PLAYER_KIND_FFPLAY:
+          return "ffplay";
+        case FIGHTER_PLAYER_KIND_AFPLAY:
+          return "afplay";
+        case FIGHTER_PLAYER_KIND_NONE:
+        default:
+          return "command";
       }
-      return "aplay";
-    case FIGHTER_PLAYER_KIND_FFPLAY:
-      return "ffplay";
-    case FIGHTER_PLAYER_KIND_AFPLAY:
-      return "afplay";
-    case FIGHTER_PLAYER_KIND_NONE:
+    case FIGHTER_AUDIO_BACKEND_DISABLED:
     default:
-      return "command";
+      return "disabled";
   }
 }
 
@@ -427,11 +1073,16 @@ int fighter_audio_init(fighter_audio_context_t *context,
     return 0;
   }
 
-  if (fighter_audio_prepare_backend(context) == 0 &&
+  if (fighter_audio_mmio_init(context) == 0) {
+    return 0;
+  }
+
+  if (fighter_audio_prepare_command_backend(context) == 0 &&
       context->player_kind != FIGHTER_PLAYER_KIND_NONE) {
     context->backend = FIGHTER_AUDIO_BACKEND_COMMAND;
   } else {
-    fprintf(stderr, "audio disabled: no usable playback backend found\n");
+    fprintf(stderr,
+            "audio disabled: no usable WM8731/MMIO or command backend found\n");
   }
 
   return 0;
@@ -442,8 +1093,18 @@ void fighter_audio_close(fighter_audio_context_t *context) {
     return;
   }
 
-  fighter_audio_stop_loop(context);
-  fighter_audio_reap_children();
+  if (context->backend == FIGHTER_AUDIO_BACKEND_MMIO &&
+      context->backend_data) {
+    fighter_audio_mmio_destroy(
+        (fighter_audio_mmio_state_t *)context->backend_data);
+    context->backend_data = NULL;
+  } else {
+    fighter_audio_stop_loop_command(context);
+    fighter_audio_reap_children();
+  }
+
+  context->backend = FIGHTER_AUDIO_BACKEND_DISABLED;
+  context->looping_track = FIGHTER_AUDIO_TRACK_NONE;
 }
 
 void fighter_audio_process_commands(fighter_audio_context_t *context,
@@ -456,7 +1117,8 @@ void fighter_audio_process_commands(fighter_audio_context_t *context,
     return;
   }
 
-  if (context->backend == FIGHTER_AUDIO_BACKEND_DISABLED && !context->backend_logged) {
+  if (context->backend == FIGHTER_AUDIO_BACKEND_DISABLED &&
+      !context->backend_logged) {
     context->backend_logged = 1;
   }
 

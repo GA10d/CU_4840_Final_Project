@@ -1,7 +1,7 @@
 CC=cc
 CPPFLAGS=-Iinclude -DFIGHTER_ENABLE_LIBUSB=0
-CFLAGS=-std=c11 -Wall -Wextra -Werror -D_POSIX_C_SOURCE=200809L
-LDFLAGS=
+CFLAGS=-std=c11 -Wall -Wextra -Werror -D_POSIX_C_SOURCE=200809L -pthread
+LDFLAGS=-pthread
 LDLIBS=
 USB_LDLIBS=
 UNAME_S=Darwin
