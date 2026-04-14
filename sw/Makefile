@@ -28,9 +28,8 @@ TEST_SRCS := tests/test_phase1.c $(COMMON_SRCS)
 TEST_OBJS := $(TEST_SRCS:.c=.o)
 
 INPUT_DEMO_TARGET := input_demo
-INPUT_DEMO_SRCS := main_input_demo.c input/usb_hid_keyboard.c input/fighter_input.c \
-	input/hid_keyboard_report.c
-INPUT_DEMO_OBJS := $(INPUT_DEMO_SRCS:.c=.o)
+INPUT_DEMO_SRCS :=
+INPUT_DEMO_OBJS :=
 
 LIBUSB_LIBS := $(shell command -v $(PKG_CONFIG) >/dev/null 2>&1 && \
 	$(PKG_CONFIG) --libs libusb-1.0 2>/dev/null)
@@ -43,6 +42,9 @@ USB_LDLIBS := $(LIBUSB_LIBS)
 endif
 PHASE1_USB_OBJS := input/usb_hid_keyboard.o
 USB_TARGETS := $(INPUT_DEMO_TARGET)
+INPUT_DEMO_SRCS := main_input_demo.c input/usb_hid_keyboard.c \
+	input/fighter_input.c input/hid_keyboard_report.c fighter_ui.c
+INPUT_DEMO_OBJS := $(INPUT_DEMO_SRCS:.c=.o)
 endif
 
 .PHONY: all clean rebuild
@@ -70,8 +72,14 @@ $(PHASE1_TARGET): $(COMMON_OBJS) main_phase1_demo.o $(PHASE1_USB_OBJS)
 $(TEST_TARGET): $(TEST_OBJS)
 	$(CC) $(CFLAGS) -o $@ $^
 
+ifeq ($(HAVE_LIBUSB),1)
 $(INPUT_DEMO_TARGET): $(INPUT_DEMO_OBJS)
 	$(CC) $(CFLAGS) -o $@ $^ $(USB_LDLIBS)
+else
+$(INPUT_DEMO_TARGET):
+	@echo "input_demo requires libusb-1.0; install libusb and rebuild"
+	@false
+endif
 
 clean:
 	rm -f $(PHASE1_TARGET) $(TEST_TARGET) $(INPUT_DEMO_TARGET) \
