@@ -112,6 +112,57 @@ static int fighter_audio_spawn_shell(const char *command) {
   return (int)pid;
 }
 
+static int fighter_audio_run_shell(const char *command) {
+  int status;
+
+  if (!command) {
+    return -1;
+  }
+
+  status = system(command);
+  if (status == -1) {
+    return -1;
+  }
+
+  if (!WIFEXITED(status)) {
+    return -1;
+  }
+
+  return WEXITSTATUS(status) == 0 ? 0 : -1;
+}
+
+static int fighter_audio_backend_usable(int player_kind) {
+  switch (player_kind) {
+    case FIGHTER_PLAYER_KIND_APLAY:
+      return fighter_find_in_path("aplay") != NULL &&
+             fighter_audio_run_shell("aplay -l >/dev/null 2>&1") == 0;
+    case FIGHTER_PLAYER_KIND_FFPLAY:
+      return fighter_find_in_path("ffplay") != NULL;
+    case FIGHTER_PLAYER_KIND_AFPLAY:
+      return fighter_find_in_path("afplay") != NULL;
+    case FIGHTER_PLAYER_KIND_NONE:
+    default:
+      return 0;
+  }
+}
+
+static int fighter_audio_pick_player_kind(void) {
+  static const int k_player_priority[] = {
+      FIGHTER_PLAYER_KIND_APLAY,
+      FIGHTER_PLAYER_KIND_FFPLAY,
+      FIGHTER_PLAYER_KIND_AFPLAY,
+  };
+  size_t i;
+
+  for (i = 0; i < sizeof(k_player_priority) / sizeof(k_player_priority[0]); ++i) {
+    if (fighter_audio_backend_usable(k_player_priority[i])) {
+      return k_player_priority[i];
+    }
+  }
+
+  return FIGHTER_PLAYER_KIND_NONE;
+}
+
 static void fighter_audio_stop_loop(fighter_audio_context_t *context) {
   pid_t pid;
 
@@ -120,7 +171,7 @@ static void fighter_audio_stop_loop(fighter_audio_context_t *context) {
   }
 
   pid = (pid_t)context->loop_pid;
-  kill(pid, SIGTERM);
+  kill(-pid, SIGTERM);
   waitpid(pid, NULL, 0);
   context->loop_pid = 0;
   context->looping_track = FIGHTER_AUDIO_TRACK_NONE;
@@ -132,14 +183,15 @@ static void fighter_audio_build_once_command(int player_kind,
                                              size_t buffer_size) {
   switch (player_kind) {
     case FIGHTER_PLAYER_KIND_APLAY:
-      snprintf(buffer, buffer_size, "aplay -q %s", quoted_path);
+      snprintf(buffer, buffer_size, "aplay -q %s >/dev/null 2>&1", quoted_path);
       break;
     case FIGHTER_PLAYER_KIND_FFPLAY:
       snprintf(buffer, buffer_size,
-               "ffplay -nodisp -autoexit -loglevel quiet %s", quoted_path);
+               "ffplay -nodisp -autoexit -loglevel quiet %s >/dev/null 2>&1",
+               quoted_path);
       break;
     case FIGHTER_PLAYER_KIND_AFPLAY:
-      snprintf(buffer, buffer_size, "afplay %s", quoted_path);
+      snprintf(buffer, buffer_size, "afplay %s >/dev/null 2>&1", quoted_path);
       break;
     default:
       buffer[0] = '\0';
@@ -153,15 +205,18 @@ static void fighter_audio_build_loop_command(int player_kind,
                                              size_t buffer_size) {
   switch (player_kind) {
     case FIGHTER_PLAYER_KIND_APLAY:
-      snprintf(buffer, buffer_size, "while :; do aplay -q %s; done", quoted_path);
+      snprintf(buffer, buffer_size,
+               "while aplay -q %s >/dev/null 2>&1; do :; done", quoted_path);
       break;
     case FIGHTER_PLAYER_KIND_FFPLAY:
       snprintf(buffer, buffer_size,
-               "ffplay -nodisp -autoexit -loglevel quiet -loop 0 %s",
+               "ffplay -nodisp -autoexit -loglevel quiet -loop 0 %s "
+               ">/dev/null 2>&1",
                quoted_path);
       break;
     case FIGHTER_PLAYER_KIND_AFPLAY:
-      snprintf(buffer, buffer_size, "while :; do afplay %s; done", quoted_path);
+      snprintf(buffer, buffer_size,
+               "while afplay %s >/dev/null 2>&1; do :; done", quoted_path);
       break;
     default:
       buffer[0] = '\0';
@@ -298,16 +353,12 @@ int fighter_audio_init(fighter_audio_context_t *context,
     return 0;
   }
 
-  if (fighter_find_in_path("aplay")) {
-    context->player_kind = FIGHTER_PLAYER_KIND_APLAY;
-  } else if (fighter_find_in_path("ffplay")) {
-    context->player_kind = FIGHTER_PLAYER_KIND_FFPLAY;
-  } else if (fighter_find_in_path("afplay")) {
-    context->player_kind = FIGHTER_PLAYER_KIND_AFPLAY;
-  }
+  context->player_kind = fighter_audio_pick_player_kind();
 
   if (context->player_kind != FIGHTER_PLAYER_KIND_NONE) {
     context->backend = FIGHTER_AUDIO_BACKEND_COMMAND;
+  } else {
+    fprintf(stderr, "audio disabled: no usable playback backend found\n");
   }
 
   return 0;
