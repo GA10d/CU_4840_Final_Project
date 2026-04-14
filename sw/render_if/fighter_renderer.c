@@ -316,6 +316,19 @@ static void fighter_renderer_print_console_player(const char *label,
 }
 
 #ifdef __linux__
+static void fighter_fb_fill_rect(fighter_renderer_t *renderer,
+                                 int x,
+                                 int y,
+                                 int width,
+                                 int height,
+                                 unsigned int color);
+static void fighter_fb_draw_text(fighter_renderer_t *renderer,
+                                 int x,
+                                 int y,
+                                 const char *text,
+                                 int scale,
+                                 unsigned int color);
+
 static void fighter_renderer_sanitize_fb_text(const char *src,
                                               char *dst,
                                               size_t dst_size) {
