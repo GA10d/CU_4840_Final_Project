@@ -869,6 +869,98 @@ static int fighter_scale_text_size(const fighter_renderer_t *renderer, int desig
   return scaled;
 }
 
+static void fighter_renderer_draw_fb_player_sprite(
+    fighter_renderer_t *renderer,
+    int player_x,
+    int player_y,
+    int player_w,
+    int player_h,
+    int facing,
+    unsigned int body_color,
+    unsigned int front_color,
+    unsigned int back_color,
+    unsigned int eye_color) {
+  int facing_right;
+  int strip_margin;
+  int strip_w;
+  int back_strip_x;
+  int front_strip_x;
+  int strip_y;
+  int strip_h;
+  int belt_margin;
+  int belt_x;
+  int belt_y;
+  int belt_w;
+  int belt_h;
+  int foot_margin;
+  int foot_w;
+  int foot_h;
+  int foot_y;
+  int front_foot_x;
+  int back_foot_x;
+  int eye_size;
+  int eye_x;
+  int eye_y;
+  int nose_w;
+  int nose_h;
+  int nose_x;
+  int nose_y;
+
+  if (!renderer || player_w <= 0 || player_h <= 0) {
+    return;
+  }
+
+  facing_right = facing > 0;
+  strip_margin = fighter_scale_size_axis(4, renderer->fb_width, 640);
+  strip_w = fighter_scale_size_axis(10, renderer->fb_width, 640);
+  strip_y = player_y + fighter_scale_axis(18, renderer->fb_height, 480);
+  strip_h = fighter_scale_size_axis(28, renderer->fb_height, 480);
+  back_strip_x = facing_right ? player_x + strip_margin
+                              : player_x + player_w - strip_margin - strip_w;
+  front_strip_x = facing_right ? player_x + player_w - strip_margin - strip_w
+                               : player_x + strip_margin;
+  belt_margin = fighter_scale_size_axis(6, renderer->fb_width, 640);
+  belt_x = player_x + belt_margin;
+  belt_y = player_y + fighter_scale_axis(50, renderer->fb_height, 480);
+  belt_w = player_w - belt_margin * 2;
+  belt_h = fighter_scale_size_axis(8, renderer->fb_height, 480);
+  foot_margin = fighter_scale_size_axis(6, renderer->fb_width, 640);
+  foot_w = fighter_scale_size_axis(12, renderer->fb_width, 640);
+  foot_h = fighter_scale_size_axis(14, renderer->fb_height, 480);
+  foot_y = player_y + player_h - foot_h;
+  front_foot_x = facing_right ? player_x + player_w - foot_margin - foot_w
+                              : player_x + foot_margin;
+  back_foot_x = facing_right ? player_x + foot_margin
+                             : player_x + player_w - foot_margin - foot_w;
+  eye_size = fighter_scale_size_axis(6, renderer->fb_width, 640);
+  eye_x = facing_right ? player_x + player_w -
+                             fighter_scale_size_axis(14, renderer->fb_width, 640)
+                       : player_x +
+                             fighter_scale_size_axis(8, renderer->fb_width, 640);
+  eye_y = player_y + fighter_scale_axis(14, renderer->fb_height, 480);
+  nose_w = fighter_scale_size_axis(5, renderer->fb_width, 640);
+  nose_h = fighter_scale_size_axis(8, renderer->fb_height, 480);
+  nose_x = facing_right ? player_x + player_w -
+                              fighter_scale_size_axis(8, renderer->fb_width, 640) -
+                              nose_w
+                        : player_x +
+                              fighter_scale_size_axis(3, renderer->fb_width, 640);
+  nose_y = player_y + fighter_scale_axis(28, renderer->fb_height, 480);
+
+  fighter_fb_fill_rect(renderer, player_x, player_y, player_w, player_h, body_color);
+  fighter_fb_fill_rect(renderer, back_strip_x, strip_y, strip_w, strip_h,
+                       back_color);
+  fighter_fb_fill_rect(renderer, front_strip_x, strip_y, strip_w, strip_h,
+                       front_color);
+  fighter_fb_fill_rect(renderer, belt_x, belt_y, belt_w, belt_h, back_color);
+  fighter_fb_fill_rect(renderer, back_foot_x, foot_y, foot_w, foot_h,
+                       back_color);
+  fighter_fb_fill_rect(renderer, front_foot_x, foot_y, foot_w, foot_h,
+                       front_color);
+  fighter_fb_fill_rect(renderer, nose_x, nose_y, nose_w, nose_h, front_color);
+  fighter_fb_fill_rect(renderer, eye_x, eye_y, eye_size, eye_size, eye_color);
+}
+
 static void fighter_renderer_draw_playfield_fb(fighter_renderer_t *renderer,
                                                const fighter_game_t *game,
                                                int overlay) {
@@ -882,6 +974,7 @@ static void fighter_renderer_draw_playfield_fb(fighter_renderer_t *renderer,
   unsigned int bar_p2;
   unsigned int text_color;
   unsigned int box_color;
+  unsigned int eye_color;
   int floor_y;
   int floor_height;
   int bar_x;
@@ -916,6 +1009,7 @@ static void fighter_renderer_draw_playfield_fb(fighter_renderer_t *renderer,
   bar_p2 = fighter_fb_color(renderer, 77, 182, 255);
   text_color = fighter_fb_color(renderer, 248, 245, 230);
   box_color = fighter_fb_color(renderer, 16, 20, 32);
+  eye_color = fighter_fb_color(renderer, 250, 250, 250);
   floor_y = fighter_scale_axis(game->config.floor_y, renderer->fb_height,
                                game->config.screen_height);
   floor_height = renderer->fb_height - floor_y;
@@ -976,13 +1070,16 @@ static void fighter_renderer_draw_playfield_fb(fighter_renderer_t *renderer,
   for (i = 0; i < FIGHTER_PLAYER_COUNT; ++i) {
     const fighter_player_state_t *player = &game->players[i];
     unsigned int player_color = i == 0 ? p1_color : p2_color;
+    unsigned int player_front_color =
+        i == 0 ? fighter_fb_color(renderer, 255, 216, 176)
+               : fighter_fb_color(renderer, 208, 239, 255);
+    unsigned int player_back_color =
+        i == 0 ? fighter_fb_color(renderer, 126, 28, 22)
+               : fighter_fb_color(renderer, 20, 78, 140);
     int player_x;
     int player_y;
     int player_w;
     int player_h;
-    int eye_x;
-    int eye_y;
-    int eye_size;
 
     player_x = fighter_scale_axis(player->x, renderer->fb_width, game->config.screen_width);
     player_y =
@@ -992,7 +1089,10 @@ static void fighter_renderer_draw_playfield_fb(fighter_renderer_t *renderer,
     player_h = fighter_scale_size_axis(game->config.player_height, renderer->fb_height,
                                        game->config.screen_height);
 
-    fighter_fb_fill_rect(renderer, player_x, player_y, player_w, player_h, player_color);
+    fighter_renderer_draw_fb_player_sprite(renderer, player_x, player_y,
+                                           player_w, player_h, player->facing,
+                                           player_color, player_front_color,
+                                           player_back_color, eye_color);
     if (player->attack_phase == FIGHTER_ATTACK_PHASE_ACTIVE ||
         player->attack_phase == FIGHTER_ATTACK_PHASE_HIT_CONFIRM ||
         player->attack_phase == FIGHTER_ATTACK_PHASE_BLOCK_CONFIRM) {
@@ -1011,13 +1111,6 @@ static void fighter_renderer_draw_playfield_fb(fighter_renderer_t *renderer,
                            effect_x, effect_y, effect_w, effect_h,
                            fighter_fb_color(renderer, 255, 240, 120));
     }
-    eye_size = fighter_scale_size_axis(6, renderer->fb_width, 640);
-    eye_x = player->facing > 0 ? player_x + player_w -
-                                     fighter_scale_size_axis(14, renderer->fb_width, 640)
-                               : player_x + fighter_scale_size_axis(8, renderer->fb_width, 640);
-    eye_y = player_y + fighter_scale_axis(14, renderer->fb_height, 480);
-    fighter_fb_fill_rect(renderer, eye_x, eye_y, eye_size, eye_size,
-                         fighter_fb_color(renderer, 250, 250, 250));
   }
 
   if (overlay) {

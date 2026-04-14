@@ -38,6 +38,25 @@ static int fighter_player_is_airborne(const fighter_game_t *game,
   return player->y < fighter_player_ground_y(game) || player->vy != 0;
 }
 
+static int fighter_player_vertical_overlap(const fighter_game_t *game,
+                                           const fighter_player_state_t *lhs,
+                                           const fighter_player_state_t *rhs) {
+  int top;
+  int bottom;
+  int lhs_bottom;
+  int rhs_bottom;
+
+  if (!game || !lhs || !rhs) {
+    return 0;
+  }
+
+  top = lhs->y > rhs->y ? lhs->y : rhs->y;
+  lhs_bottom = lhs->y + game->config.player_height;
+  rhs_bottom = rhs->y + game->config.player_height;
+  bottom = lhs_bottom < rhs_bottom ? lhs_bottom : rhs_bottom;
+  return bottom - top;
+}
+
 static fighter_attack_profile_t fighter_attack_profile(
     fighter_attack_command_t attack) {
   switch (attack) {
@@ -332,6 +351,7 @@ static void fighter_game_resolve_overlap(fighter_game_t *game) {
   fighter_player_state_t *left_player;
   fighter_player_state_t *right_player;
   int overlap;
+  int vertical_overlap;
   int push;
   int max_x;
 
@@ -346,6 +366,11 @@ static void fighter_game_resolve_overlap(fighter_game_t *game) {
 
   overlap = left_player->x + game->config.player_width - right_player->x;
   if (overlap <= 0) {
+    return;
+  }
+  vertical_overlap =
+      fighter_player_vertical_overlap(game, left_player, right_player);
+  if (vertical_overlap <= 0) {
     return;
   }
 

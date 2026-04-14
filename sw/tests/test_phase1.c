@@ -36,6 +36,10 @@ static fighter_game_config_t short_config(void) {
   return config;
 }
 
+static int ground_y(const fighter_game_t *game) {
+  return game->config.floor_y - game->config.player_height;
+}
+
 static void clear_inputs(fighter_player_result_t inputs[2]) {
   memset(inputs, 0, sizeof(fighter_player_result_t) * 2);
 }
@@ -267,6 +271,53 @@ static void test_block_stun_and_mmio_fields(void) {
                 FIGHTER_COMBAT_RESULT_BLOCKED);
 }
 
+static void test_airborne_crossup_flips_facing(void) {
+  fighter_game_t game;
+  fighter_audio_command_list_t commands;
+  fighter_player_result_t inputs[2];
+  int i;
+
+  fighter_game_init(&game, NULL);
+  start_round(&game, &commands, inputs);
+
+  game.players[0].x = 276;
+  game.players[0].y = ground_y(&game) - game.config.player_height - 28;
+  game.players[0].vy = 0;
+  game.players[1].x = 300;
+
+  for (i = 0; i < 7; ++i) {
+    clear_inputs(inputs);
+    inputs[0].move_right = 1;
+    fighter_game_tick(&game, inputs, &commands);
+  }
+
+  EXPECT_TRUE(game.players[0].x > game.players[1].x);
+  EXPECT_TRUE(game.players[0].y < ground_y(&game));
+  EXPECT_EQ_INT(game.players[0].facing, -1);
+  EXPECT_EQ_INT(game.players[1].facing, 1);
+}
+
+static void test_grounded_overlap_still_resolves(void) {
+  fighter_game_t game;
+  fighter_audio_command_list_t commands;
+  fighter_player_result_t inputs[2];
+
+  fighter_game_init(&game, NULL);
+  start_round(&game, &commands, inputs);
+
+  game.players[0].x = 280;
+  game.players[1].x = 300;
+  game.players[0].y = ground_y(&game);
+  game.players[1].y = ground_y(&game);
+
+  clear_inputs(inputs);
+  fighter_game_tick(&game, inputs, &commands);
+
+  EXPECT_TRUE(game.players[0].x + game.config.player_width <= game.players[1].x);
+  EXPECT_EQ_INT(game.players[0].facing, 1);
+  EXPECT_EQ_INT(game.players[1].facing, -1);
+}
+
 int main(void) {
   test_menu_transition();
   test_exit_back_to_menu();
@@ -275,6 +326,8 @@ int main(void) {
   test_timeout_and_mmio();
   test_hit_confirm_state_machine();
   test_block_stun_and_mmio_fields();
+  test_airborne_crossup_flips_facing();
+  test_grounded_overlap_still_resolves();
 
   if (g_failures != 0) {
     fprintf(stderr, "phase1 tests failed: %d\n", g_failures);
