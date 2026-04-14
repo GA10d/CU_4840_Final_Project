@@ -316,6 +316,91 @@ static void fighter_renderer_print_console_player(const char *label,
 }
 
 #ifdef __linux__
+static void fighter_renderer_sanitize_fb_text(const char *src,
+                                              char *dst,
+                                              size_t dst_size) {
+  size_t used;
+
+  if (!dst || dst_size == 0) {
+    return;
+  }
+
+  dst[0] = '\0';
+  if (!src) {
+    return;
+  }
+
+  used = 0;
+  while (*src != '\0' && used + 1 < dst_size) {
+    unsigned char ch;
+
+    ch = (unsigned char)*src++;
+    if (ch >= 'a' && ch <= 'z') {
+      ch = (unsigned char)(ch - 'a' + 'A');
+    }
+
+    if ((ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == ' ' ||
+        ch == '-' || ch == ':') {
+      dst[used++] = (char)ch;
+    } else if (ch == '_' || ch == '|') {
+      dst[used++] = '-';
+    } else {
+      dst[used++] = ' ';
+    }
+  }
+  dst[used] = '\0';
+}
+
+static void fighter_renderer_draw_fb_player_debug(
+    fighter_renderer_t *renderer,
+    int x,
+    int y,
+    int width,
+    int height,
+    unsigned int box_color,
+    unsigned int text_color,
+    int text_scale,
+    int line_step,
+    int padding,
+    const fighter_player_state_t *player) {
+  char state_name[32];
+  char phase_name[32];
+  char result_name[32];
+  char line[64];
+  int text_x;
+  int line_y;
+
+  if (!renderer || !player || width <= 0 || height <= 0) {
+    return;
+  }
+
+  fighter_renderer_sanitize_fb_text(
+      fighter_renderer_visual_state_name(player->visual_state), state_name,
+      sizeof(state_name));
+  fighter_renderer_sanitize_fb_text(
+      fighter_renderer_attack_phase_name(player->attack_phase), phase_name,
+      sizeof(phase_name));
+  fighter_renderer_sanitize_fb_text(
+      fighter_renderer_combat_result_name(player->combat_result), result_name,
+      sizeof(result_name));
+
+  fighter_fb_fill_rect(renderer, x, y, width, height, box_color);
+
+  text_x = x + padding;
+  line_y = y + padding;
+
+  snprintf(line, sizeof(line), "ST %s", state_name);
+  fighter_fb_draw_text(renderer, text_x, line_y, line, text_scale, text_color);
+
+  line_y += line_step;
+  snprintf(line, sizeof(line), "PH %s", phase_name);
+  fighter_fb_draw_text(renderer, text_x, line_y, line, text_scale, text_color);
+
+  line_y += line_step;
+  snprintf(line, sizeof(line), "RS %s", result_name);
+  fighter_fb_draw_text(renderer, text_x, line_y, line, text_scale, text_color);
+}
+
 static unsigned int fighter_fb_color(const fighter_renderer_t *renderer,
                                      unsigned char red,
                                      unsigned char green,
@@ -796,6 +881,11 @@ static void fighter_renderer_draw_playfield_fb(fighter_renderer_t *renderer,
   int timer_box_height;
   int timer_text_y;
   int label_y;
+  int debug_box_y;
+  int debug_box_height;
+  int debug_line_step;
+  int debug_padding;
+  int text_scale_debug;
   int text_scale_small;
   int text_scale_medium;
   int timer_seconds;
@@ -826,6 +916,11 @@ static void fighter_renderer_draw_playfield_fb(fighter_renderer_t *renderer,
   timer_box_height = fighter_scale_size_axis(34, renderer->fb_height, 480);
   timer_text_y = fighter_scale_axis(18, renderer->fb_height, 480);
   label_y = fighter_scale_axis(48, renderer->fb_height, 480);
+  debug_box_y = fighter_scale_axis(66, renderer->fb_height, 480);
+  debug_box_height = fighter_scale_size_axis(54, renderer->fb_height, 480);
+  debug_line_step = fighter_scale_size_axis(16, renderer->fb_height, 480);
+  debug_padding = fighter_scale_size_axis(4, renderer->fb_height, 480);
+  text_scale_debug = fighter_scale_text_size(renderer, 2);
   text_scale_small = fighter_scale_text_size(renderer, 2);
   text_scale_medium = fighter_scale_text_size(renderer, 3);
   timer_seconds = fighter_game_round_seconds_remaining(game);
@@ -856,6 +951,14 @@ static void fighter_renderer_draw_playfield_fb(fighter_renderer_t *renderer,
       renderer,
       renderer->fb_width - fighter_scale_axis(60, renderer->fb_width, 640), label_y,
       "P2", text_scale_small, text_color);
+  fighter_renderer_draw_fb_player_debug(renderer, bar_x, debug_box_y, bar_width,
+                                        debug_box_height, box_color, text_color,
+                                        text_scale_debug, debug_line_step,
+                                        debug_padding, &game->players[0]);
+  fighter_renderer_draw_fb_player_debug(
+      renderer, renderer->fb_width - bar_x - bar_width, debug_box_y, bar_width,
+      debug_box_height, box_color, text_color, text_scale_debug,
+      debug_line_step, debug_padding, &game->players[1]);
 
   for (i = 0; i < FIGHTER_PLAYER_COUNT; ++i) {
     const fighter_player_state_t *player = &game->players[i];
