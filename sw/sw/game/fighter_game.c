@@ -8,35 +8,6 @@ typedef struct {
   int damage;
 } fighter_attack_profile_t;
 
-static fighter_attack_profile_t fighter_attack_profile(
-    fighter_attack_command_t attack);
-
-static int fighter_aabb_overlap(const fighter_aabb_t *a, const fighter_aabb_t *b) {
-  return a->x1 < b->x2 && a->x2 > b->x1 && a->y1 < b->y2 && a->y2 > b->y1;
-}
-
-static fighter_aabb_t fighter_generate_hitbox(const fighter_game_t *game,
-                                              const fighter_player_state_t *attacker,
-                                              fighter_attack_command_t attack) {
-  fighter_aabb_t hitbox = {0, 0, 0, 0};  // 默认无hitbox
-  int front_x = attacker->facing > 0 ? attacker->x + game->config.player_width : attacker->x;
-  fighter_attack_profile_t profile = fighter_attack_profile(attack);
-
-  if (profile.damage > 0) {
-    // 简单hitbox: 向前延伸reach像素, 高度player_height/2
-    if (attacker->facing > 0) {
-      hitbox.x1 = front_x;
-      hitbox.x2 = front_x + profile.reach;
-    } else {
-      hitbox.x1 = front_x - profile.reach;
-      hitbox.x2 = front_x;
-    }
-    hitbox.y1 = attacker->y;
-    hitbox.y2 = attacker->y + game->config.player_height / 2;
-  }
-  return hitbox;
-}
-
 static int fighter_clamp_int(int value, int min_value, int max_value) {
   if (value < min_value) {
     return min_value;
@@ -103,16 +74,6 @@ static void fighter_game_reset_round(fighter_game_t *game) {
   game->players[1].last_attack = FIGHTER_ATTACK_NONE;
   game->players[0].visual_state = FIGHTER_VISUAL_STATE_IDLE;
   game->players[1].visual_state = FIGHTER_VISUAL_STATE_IDLE;
-  game->players[0].hurtbox = (fighter_aabb_t){game->players[0].x, game->players[0].y,
-                                              game->players[0].x + game->config.player_width,
-                                              game->players[0].y + game->config.player_height};
-  game->players[1].hurtbox = (fighter_aabb_t){game->players[1].x, game->players[1].y,
-                                              game->players[1].x + game->config.player_width,
-                                              game->players[1].y + game->config.player_height};
-  game->players[0].invuln_timer = 0;
-  game->players[1].invuln_timer = 0;
-  game->players[0].hit_once = 0;
-  game->players[1].hit_once = 0;
   game->round_timer_frames = (uint32_t)game->config.round_duration_frames;
   game->winner = FIGHTER_WINNER_NONE;
 }
@@ -236,43 +197,52 @@ static void fighter_game_apply_attack(fighter_game_t *game,
   fighter_player_state_t *target;
   const fighter_player_result_t *target_input;
   fighter_attack_profile_t profile;
+  int front_x;
+  int target_center;
+  int distance;
+  int damage;
 
   attacker = &game->players[attacker_index];
   target = &game->players[1 - attacker_index];
   target_input = &inputs[1 - attacker_index];
   profile = fighter_attack_profile(attacker->last_attack);
 
-  if (profile.damage == 0 || attacker->hp <= 0 || target->invuln_timer > 0 || attacker->hit_once) {
+  if (profile.damage == 0 || attacker->hp <= 0) {
     return;
   }
 
-  // 生成hitbox
-  fighter_aabb_t hitbox = fighter_generate_hitbox(game, attacker, attacker->last_attack);
+  front_x = attacker->facing > 0 ? attacker->x + game->config.player_width : attacker->x;
+  target_center = target->x + game->config.player_width / 2;
+  distance = attacker->facing > 0 ? target_center - front_x : front_x - target_center;
 
-  // 检查碰撞: hitbox与target hurtbox重叠
-  if (fighter_aabb_overlap(&hitbox, &target->hurtbox)) {
-    int damage = profile.damage;
-    if (target_input->guard_held && !fighter_player_is_airborne(game, target)) {
-      damage = damage / 3;
-      if (damage < 1) {
-        damage = 1;
-      }
-    }
+  if (distance < -game->config.player_width / 2 || distance > profile.reach) {
+    return;
+  }
 
-    target->hp -= damage;
-    if (target->hp < 0) {
-      target->hp = 0;
-    }
-    target->hurt_visual_frames = game->config.hurt_visual_frames;
-    target->invuln_timer = 15;  // 15帧invulnerability
-    attacker->hit_once = 1;     // 防止连续命中
+  if (target->y - attacker->y > game->config.player_height / 2 ||
+      attacker->y - target->y > game->config.player_height / 2) {
+    return;
+  }
 
-    if (target->hp == 0) {
-      target->visual_state = FIGHTER_VISUAL_STATE_KO;
-      fighter_game_enter_game_over(
-          game, attacker_index == 0 ? FIGHTER_WINNER_PLAYER1 : FIGHTER_WINNER_PLAYER2,
-          audio_commands);
+  damage = profile.damage;
+  if (target_input->guard_held && !fighter_player_is_airborne(game, target)) {
+    damage = damage / 3;
+    if (damage < 1) {
+      damage = 1;
     }
+  }
+
+  target->hp -= damage;
+  if (target->hp < 0) {
+    target->hp = 0;
+  }
+  target->hurt_visual_frames = game->config.hurt_visual_frames;
+
+  if (target->hp == 0) {
+    target->visual_state = FIGHTER_VISUAL_STATE_KO;
+    fighter_game_enter_game_over(
+        game, attacker_index == 0 ? FIGHTER_WINNER_PLAYER1 : FIGHTER_WINNER_PLAYER2,
+        audio_commands);
   }
 }
 
@@ -303,15 +273,6 @@ static void fighter_game_handle_player(fighter_game_t *game,
   if (player->hurt_visual_frames > 0) {
     player->hurt_visual_frames--;
   }
-  if (player->invuln_timer > 0) {
-    player->invuln_timer--;
-  }
-
-  // 更新hurtbox位置
-  player->hurtbox.x1 = player->x;
-  player->hurtbox.y1 = player->y;
-  player->hurtbox.x2 = player->x + game->config.player_width;
-  player->hurtbox.y2 = player->y + game->config.player_height;
 
   if (input->jump_pressed && !fighter_player_is_airborne(game, player)) {
     player->vy = game->config.jump_velocity;
@@ -338,11 +299,6 @@ static void fighter_game_handle_player(fighter_game_t *game,
   if (player->y >= ground_y) {
     player->y = ground_y;
     player->vy = 0;
-  }
-
-  // 重置hit_once (攻击结束时)
-  if (player->attack_visual_frames == 0) {
-    player->hit_once = 0;
   }
 
   fighter_game_update_visual_state(game, player, input);
