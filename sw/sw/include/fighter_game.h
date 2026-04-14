@@ -37,10 +37,6 @@ typedef enum {
 } fighter_winner_t;
 
 typedef struct {
-  int x1, y1, x2, y2;  // AABB: 左上(x1,y1), 右下(x2,y2)
-} fighter_aabb_t;
-
-typedef struct {
   int screen_width;
   int screen_height;
   int floor_y;
@@ -69,9 +65,6 @@ typedef struct {
   int hurt_visual_frames;
   fighter_attack_command_t last_attack;
   fighter_visual_state_t visual_state;
-  fighter_aabb_t hurtbox;  // 新增：hurtbox
-  int invuln_timer;        // 新增：invulnerability timer (帧数)
-  int hit_once;            // 新增：防止连续命中
 } fighter_player_state_t;
 
 typedef struct {
