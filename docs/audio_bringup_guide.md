@@ -11,6 +11,11 @@
 
 当前仓库已经具备 HPS 侧的软件播放链路，但没有随仓库一起提交完整的 Quartus/Platform Designer 音频工程。因此，这份文档会把“软件已经准备好的部分”和“硬件还需要满足的条件”都写清楚。
 
+我已经在仓库里补了一版最小 FPGA 侧实现，放在：
+
+- [fighter_audio_wm8731.sv](/Users/guozhewen/Documents/GitHub/CU_4840_Final_Project/hw/audio/fighter_audio_wm8731.sv)
+- [hw/audio/README.md](/Users/guozhewen/Documents/GitHub/CU_4840_Final_Project/hw/audio/README.md)
+
 ## 2. What Is Already In This Repo
 
 现有软件链路如下：
@@ -68,6 +73,13 @@ HPS 侧现在假设存在一个挂在 lightweight HPS-to-FPGA bridge 上的 32-b
 1. 复用 Terasic/Intel 现成的 Audio Core + Audio/Video Config IP
 2. 自己写 SystemVerilog，把 `WM8731` 初始化和串行音频发送都做掉
 
+当前仓库已经给出第 2 条路的最小 bring-up 版本实现。它包含：
+
+1. 和软件当前约定兼容的 Avalon-MM 音频寄存器
+2. 左右声道 FIFO
+3. FPGA 侧 `WM8731` I2C 初始化状态机
+4. `AUD_XCK/BCLK/DACLRCK/DACDAT` 的串行输出
+
 如果你们走 Platform Designer，建议沿着 `Lab 3` 的方式做：
 
 1. 把音频数据外设挂到 `h2f_lw_axi_master`
@@ -88,7 +100,249 @@ export FIGHTER_AUDIO_MMIO_ADDR=0xFF20xxxx
 export FIGHTER_AUDIO_BRIDGE_RESET_ADDR=0xFFD0501C
 ```
 
-## 5. Build
+## 5. Lab 3 Style Hardware Setup
+
+这一节是最接近 `Lab 3` instruction 的“从头到尾配置硬件”步骤。建议你们在一份已经能正常启动 HPS Linux 的 DE1-SoC Quartus 工程上做，不要从空白工程起步。
+
+### 5.1 Start From a Working SoC Project
+
+先确认你的硬件工程已经具备这些基础：
+
+1. 有 `hps_0`
+2. 有 `h2f_lw_axi_master`
+3. 有正常的 `clk` 和 `reset`
+4. 已经能生成 `.rbf`
+5. 板子原本就能从 SD 卡启动 Linux
+
+如果这些还没准备好，先回到你们的 `Lab 3` 骨架工程。
+
+### 5.2 Add the SystemVerilog File
+
+把这个文件加入你的 Quartus 工程：
+
+- [fighter_audio_wm8731.sv](/Users/guozhewen/Documents/GitHub/CU_4840_Final_Project/hw/audio/fighter_audio_wm8731.sv)
+
+建议做法：
+
+1. 把文件复制到你们 Quartus 工程目录，或者直接以仓库路径引用
+2. 在 Quartus 里确认它被加入 `Files`
+
+### 5.3 Create a Platform Designer Component
+
+像 `Lab 3` 的 `vga_ball.sv` 一样，把这个 SV 包装成一个 Platform Designer component。
+
+步骤：
+
+1. 打开 `Platform Designer`
+2. 打开你们现有的 `soc_system.qsys`
+3. 选择 `File -> New Component`
+4. 在 `Component Type` 里命名为 `fighter_audio_wm8731`
+5. 在 `Files` 里把 `fighter_audio_wm8731.sv` 加进去
+6. 点击 `Analyze Synthesis Files`
+
+### 5.4 Fix the Interfaces in Component Editor
+
+和 `Lab 3` 一样，分析完成后一定要检查接口，不要完全相信自动推断。
+
+建议按下面方式整理：
+
+1. `clk` 作为 `clock`
+2. `reset_n` 作为 `reset`
+   这里是 active-low reset
+3. `avs_*` 这组信号作为 `Avalon Memory-Mapped Slave`
+4. 新建一个 conduit，名字建议叫 `audio`
+   把下面这些信号拖进去：
+   - `aud_xck`
+   - `aud_bclk`
+   - `aud_daclrck`
+   - `aud_adclrck`
+   - `aud_dacdat`
+   - `aud_adcdat`
+5. 再新建一个 conduit，名字建议叫 `fpga_i2c`
+   把下面这些信号拖进去：
+   - `fpga_i2c_sclk`
+   - `fpga_i2c_sdat`
+6. 如果你们想把初始化状态导出来调试，可以再建一个 conduit 叫 `status`
+   包含：
+   - `codec_init_done`
+   - `codec_init_error`
+
+如果 Platform Designer 没有自动把 `avs_*` 识别成 MM slave，就手工指定：
+
+- `avs_chipselect`
+- `avs_read`
+- `avs_write`
+- `avs_address`
+- `avs_writedata`
+- `avs_readdata`
+
+Associated clock/reset 都指向 `clk` / `reset_n`。
+
+### 5.5 Add the Component Into the System
+
+回到 `System Contents`：
+
+1. 把 `fighter_audio_wm8731` 加进系统
+2. `clk` 接系统时钟
+3. `reset_n` 接系统 reset
+4. `avs` 接到 `h2f_lw_axi_master`
+5. 导出 `audio` conduit
+6. 导出 `fpga_i2c` conduit
+7. 如果保留调试，也导出 `status`
+
+### 5.6 Set the Base Address
+
+这是最关键的一步之一。
+
+当前软件默认访问物理地址 `0xFF203040`。  
+对 lightweight bridge 来说，通常对应：
+
+```text
+0xFF200000 + 0x3040 = 0xFF203040
+```
+
+所以在 Platform Designer 里，最省事的做法是把这个外设的 offset 直接设成：
+
+```text
+0x3040
+```
+
+这样你们不需要改软件里的默认地址。
+
+如果你们用的是别的 offset，也没关系，但之后 Linux 上要这样跑：
+
+```bash
+export FIGHTER_AUDIO_MMIO_ADDR=0xFF20xxxx
+```
+
+### 5.7 Generate HDL
+
+和 `Lab 3` 一样：
+
+1. 保存 `soc_system.qsys`
+2. 点击 `Generate HDL`
+3. 确认生成成功
+
+## 6. Top-Level Wiring
+
+### 6.1 Connect the Exported Audio Pins
+
+生成 HDL 之后，要在顶层把导出的 conduit 接到 DE1-SoC 板卡端口。
+
+如果你们的板卡模板已经有这些顶层端口，目标就是接到：
+
+- `AUD_XCK`
+- `AUD_BCLK`
+- `AUD_DACLRCK`
+- `AUD_ADCLRCK`
+- `AUD_DACDAT`
+- `AUD_ADCDAT`
+- `FPGA_I2C_SCLK`
+- `FPGA_I2C_SDAT`
+
+一个典型的连接思路是：
+
+```systemverilog
+.audio_aud_xck      (AUD_XCK),
+.audio_aud_bclk     (AUD_BCLK),
+.audio_aud_daclrck  (AUD_DACLRCK),
+.audio_aud_adclrck  (AUD_ADCLRCK),
+.audio_aud_dacdat   (AUD_DACDAT),
+.audio_aud_adcdat   (AUD_ADCDAT),
+.fpga_i2c_fpga_i2c_sclk (FPGA_I2C_SCLK),
+.fpga_i2c_fpga_i2c_sdat (FPGA_I2C_SDAT)
+```
+
+注意：
+
+- 最终端口名取决于你在 Platform Designer 里给 conduit/export 起的名字
+- 所以上面只是“命名模式示例”，不是唯一正确字符串
+
+### 6.2 About `HPS_I2C_CONTROL`
+
+这次这版 SV 用的是 FPGA 侧 I2C 去初始化 `WM8731`，不是 HPS 侧 I2C。
+
+所以要点是：
+
+- 不要把 I2C bus 切给 HPS
+- 如果你们的顶层里有 `HPS_I2C_CONTROL`，要保证它不会把 bus 抢走
+
+简化理解：
+
+- `HPS_I2C_CONTROL = high` 是给 HPS 访问 codec 用的
+- 我们现在走 FPGA-side I2C，应该保持 bus 仍归 FPGA 这边
+
+### 6.3 Pin Assignments
+
+如果你们不是从现成板卡模板起步，还要确认 Quartus pin assignment 已经存在并且正确。
+
+手册里音频相关引脚名是：
+
+- `AUD_ADCLRCK`
+- `AUD_ADCDAT`
+- `AUD_DACLRCK`
+- `AUD_DACDAT`
+- `AUD_XCK`
+- `AUD_BCLK`
+- `FPGA_I2C_SCLK`
+- `FPGA_I2C_SDAT`
+
+最稳的做法是直接复用课程/参考工程里已经存在的 DE1-SoC top-level 和 pin assignment，不要自己手敲 pin number。
+
+## 7. Quartus Compile And Bitstream
+
+和 `Lab 3` 一样，生成 HDL 后重新编译 Quartus 工程。
+
+典型流程：
+
+1. 回到 Quartus
+2. 确认新生成的 Platform Designer 文件已加入工程
+3. `Start Compilation`
+4. 等待生成新的 `.sof` / `.rbf`
+
+如果编译失败，优先检查：
+
+1. Platform Designer 接口是不是识别错了
+2. 顶层 conduit 端口名是不是写错了
+3. pin assignment 是否冲突
+4. reset 极性有没有接反
+
+## 8. Program The Board
+
+和 `Lab 3` 一样，有两种常见方法：
+
+1. 用 Quartus Programmer 直接下载 `.sof` 到板子
+2. 把 `.rbf` 放到 SD 卡 boot 分区，让板子启动时加载
+
+如果你们想在 U-Boot 阶段手动加载：
+
+```text
+fatload mmc 0:1 $fpgadata soc_system.rbf
+fpga load 0 $fpgadata $filesize
+run bridge_enable_handoff
+```
+
+## 9. First Hardware Check Before Audio Playback
+
+在 Linux 里先别急着播 WAV，先检查外设寄存器。
+
+你们现在仓库里已经有：
+
+```bash
+cd sw
+./audio_probe
+```
+
+如果你们按上面的建议把 offset 设成了 `0x3040`，软件默认地址就对得上。
+
+正确目标是：
+
+- `reg[1]` 不再是 `0x00000000`
+- `left_write_space` 和 `right_write_space` 是非零
+
+只有先看到这个，才说明 FPGA 音频外设真的起来了。
+
+## 10. Build
 
 在软件目录编译：
 
@@ -109,7 +363,7 @@ make
 - `phase1_demo` 是完整游戏演示
 - `phase1_test` 是现有状态机/MMIO 编码测试
 
-## 6. Quick Host-Side Smoke Test
+## 11. Quick Host-Side Smoke Test
 
 这一步不依赖 FPGA 音频硬件，主要是确认：
 
@@ -146,9 +400,9 @@ export FIGHTER_AUDIO_DEVICE=plughw:0,0
 ./audio_demo --track menu_confirm --seconds 2
 ```
 
-## 7. Board Bring-Up Flow
+## 12. Board Bring-Up Flow
 
-### 7.1 Program the FPGA
+### 12.1 Program the FPGA
 
 和 `Lab 3` 一样，先确保你的 bitstream 已经把音频外设编进去。
 
@@ -159,7 +413,7 @@ export FIGHTER_AUDIO_DEVICE=plughw:0,0
 - `WM8731` 的 `I2C` 配置逻辑已经生效
 - 外设地址和你准备在 Linux 里使用的一致
 
-### 7.2 Verify in U-Boot First
+### 12.2 Verify in U-Boot First
 
 建议先像 `Lab 3` 那样，在 U-Boot 里做最小硬件检查，先把“硬件没起来”和“Linux/程序问题”分开。
 
@@ -179,7 +433,7 @@ md.l 0xff203040 4
 
 如果实际地址不是 `0xFF203040`，把上面命令里的地址换成你们自己的。
 
-### 7.3 Boot Linux
+### 12.3 Boot Linux
 
 Linux 侧至少需要：
 
@@ -202,7 +456,7 @@ apt install -y gcc make
 apt install -y alsa-utils ffmpeg
 ```
 
-### 7.4 Run the Minimal Audio Tool
+### 12.4 Run the Minimal Audio Tool
 
 先跑最小工具，不要一开始就上完整游戏：
 
@@ -233,7 +487,7 @@ mode         : once
 hold         : 3.00 s
 ```
 
-### 7.5 Run the Full Demo
+### 12.5 Run the Full Demo
 
 最小工具确认出声后，再跑完整游戏：
 
@@ -248,7 +502,7 @@ cd sw
 ./phase1_demo --script smoke --console --audio
 ```
 
-## 8. Relative Paths and Working Directory
+## 13. Relative Paths And Working Directory
 
 当前音频资源路径是相对 `sw/` 目录写死的，所以运行时请从 `sw` 目录启动程序：
 
@@ -265,9 +519,9 @@ cd sw
 
 否则相对路径 `../game_assets/...` 可能找不到。
 
-## 9. Troubleshooting
+## 14. Troubleshooting
 
-### 9.1 `audio backend: afplay` / `aplay` / `ffplay`
+### 14.1 `audio backend: afplay` / `aplay` / `ffplay`
 
 这说明 `WM8731/MMIO` 初始化失败了，程序回退到了命令行播放器后端。
 
@@ -278,7 +532,7 @@ cd sw
 - U-Boot 里是否执行了 `bridge_enable_handoff`
 - Linux 里 `/dev/mem` 是否可访问
 
-### 9.2 `audio disabled: WM8731 MMIO: open /dev/mem failed`
+### 14.2 `audio disabled: WM8731 MMIO: open /dev/mem failed`
 
 这是权限问题，通常说明：
 
@@ -287,7 +541,7 @@ cd sw
 
 先用 root 运行验证。
 
-### 9.3 `audio FIFO probe failed`
+### 14.3 `audio FIFO probe failed`
 
 这是当前最重要的排障信号，通常意味着下面几种情况之一：
 
@@ -305,7 +559,7 @@ md.l 0xff203040 4
 
 确认第二个寄存器是不是合理。
 
-### 9.4 `wm8731-mmio` 已选中但还是没有声音
+### 14.4 `wm8731-mmio` 已选中但还是没有声音
 
 这时软件侧通常已经打到外设了，问题更可能在硬件：
 
@@ -321,7 +575,7 @@ md.l 0xff203040 4
 - `AUD_DACLRCK`
 - `AUD_DACDAT`
 
-### 9.5 WAV File Problems
+### 14.5 WAV File Problems
 
 当前加载器支持：
 
@@ -333,7 +587,7 @@ md.l 0xff203040 4
 
 如果你换了素材后突然没声，先确认新素材还是标准 PCM WAV。
 
-## 10. Suggested Team Workflow
+## 15. Suggested Team Workflow
 
 如果你们想像 `Lab 3` 那样分工，最稳的方式是：
 
