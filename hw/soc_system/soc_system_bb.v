@@ -67,14 +67,16 @@ module soc_system (
 	hps_ddr3_mem_dm,
 	hps_ddr3_oct_rzqin,
 	reset_reset_n,
-	vga_b,
-	vga_blank_n,
-	vga_clk,
-	vga_g,
-	vga_hs,
-	vga_r,
-	vga_sync_n,
-	vga_vs);	
+	audio_adcdat,
+	audio_adclrck,
+	audio_bclk,
+	audio_dacdat,
+	audio_daclrck,
+	audio_xck,
+	audio_init_done,
+	audio_init_error,
+	audio_i2c_sclk,
+	audio_i2c_sdat);	
 
 	input		clk_clk;
 	output		hps_hps_io_emac1_inst_TX_CLK;
@@ -143,12 +145,14 @@ module soc_system (
 	output	[3:0]	hps_ddr3_mem_dm;
 	input		hps_ddr3_oct_rzqin;
 	input		reset_reset_n;
-	output	[7:0]	vga_b;
-	output		vga_blank_n;
-	output		vga_clk;
-	output	[7:0]	vga_g;
-	output		vga_hs;
-	output	[7:0]	vga_r;
-	output		vga_sync_n;
-	output		vga_vs;
+	input		audio_adcdat;
+	output		audio_adclrck;
+	output		audio_bclk;
+	output		audio_dacdat;
+	output		audio_daclrck;
+	output		audio_xck;
+	output		audio_init_done;
+	output		audio_init_error;
+	inout		audio_i2c_sclk;
+	inout		audio_i2c_sdat;
 endmodule

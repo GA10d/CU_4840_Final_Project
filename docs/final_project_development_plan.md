@@ -79,12 +79,12 @@
 - HPS 与 FPGA 协同
 - Avalon memory-mapped peripheral
 - Linux device driver
-- VGA 外设
+- 显示输出链路
 
 可复用点：
 
-- `vga_ball.sv` 的 VGA 时序与基本视频输出框架
-- `vga_ball.c` 的 platform driver / `ioctl` 通信结构
+- 显示输出时序与基本视频输出框架
+- `Lab 3` 里的 platform driver / `ioctl` 通信结构
 - HPS 通过寄存器控制 FPGA 外设的整体模式
 
 建议把 `lab3` 作为 final project 的主骨架进行扩展，而不是从零开始搭建显示链路。
@@ -530,7 +530,7 @@
 
 建议你们下一步按如下顺序推进：
 
-1. 从 `lab3` 迁移 VGA 外设与 driver 到 `final_project`
+1. 先确定最终显示后端接口（软件 framebuffer 或 FPGA 外设）
 2. 从 `lab2` 迁移 USB keyboard 输入框架
 3. 定义最终的 HPS-FPGA 寄存器接口
 4. 先做“两个矩形角色移动”的最小版本

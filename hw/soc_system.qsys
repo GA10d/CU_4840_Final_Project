@@ -17,15 +17,7 @@
          type = "int";
       }
    }
-   element hps_0
-   {
-      datum _sortIndex
-      {
-         value = "1";
-         type = "int";
-      }
-   }
-   element vga_ball_0
+   element fighter_audio_0
    {
       datum _sortIndex
       {
@@ -33,11 +25,11 @@
          type = "int";
       }
    }
-   element fighter_audio_0
+   element hps_0
    {
       datum _sortIndex
       {
-         value = "3";
+         value = "1";
          type = "int";
       }
    }
@@ -55,26 +47,35 @@
  <parameter name="hideFromIPCatalog" value="false" />
  <parameter name="lockedInterfaceDefinition" value="" />
  <parameter name="maxAdditionalLatency" value="1" />
- <parameter name="projectName" value="" />
+ <parameter name="projectName" value="soc_system.qpf" />
  <parameter name="sopcBorderPoints" value="false" />
  <parameter name="systemHash" value="0" />
  <parameter name="testBenchDutName" value="" />
  <parameter name="timeStamp" value="0" />
  <parameter name="useTestBenchNamingPattern" value="false" />
  <instanceScript></instanceScript>
+ <interface
+   name="audio"
+   internal="fighter_audio_0.audio"
+   type="conduit"
+   dir="end" />
  <interface name="clk" internal="clk_0.clk_in" type="clock" dir="end" />
  <interface name="hps" internal="hps_0.hps_io" type="conduit" dir="end" />
  <interface name="hps_ddr3" internal="hps_0.memory" type="conduit" dir="end" />
  <interface name="reset" internal="clk_0.clk_in_reset" type="reset" dir="end" />
- <interface name="vga" internal="vga_ball_0.vga" type="conduit" dir="end" />
- <interface name="audio" internal="fighter_audio_0.audio" type="conduit" dir="end" />
- <interface name="fpga_i2c" internal="fighter_audio_0.fpga_i2c" type="conduit" dir="end" />
- <interface name="audio_status" internal="fighter_audio_0.status" type="conduit" dir="end" />
  <module name="clk_0" kind="clock_source" version="21.1" enabled="1">
   <parameter name="clockFrequency" value="50000000" />
   <parameter name="clockFrequencyKnown" value="true" />
   <parameter name="inputClockFrequency" value="0" />
   <parameter name="resetSynchronousEdges" value="NONE" />
+ </module>
+ <module name="fighter_audio_0" kind="fighter_audio" version="1.0" enabled="1">
+  <parameter name="BCLK_DIV" value="16" />
+  <parameter name="CLK_HZ" value="50000000" />
+  <parameter name="FIFO_DEPTH" value="128" />
+  <parameter name="I2C_DEVICE_ADDR" value="26" />
+  <parameter name="I2C_RATE_HZ" value="100000" />
+  <parameter name="XCK_DIV" value="4" />
  </module>
  <module name="hps_0" kind="altera_hps" version="21.1" enabled="1">
   <parameter name="ABSTRACT_REAL_COMPARE_TEST" value="false" />
@@ -606,28 +607,20 @@
   <parameter name="usb_mp_clk_div" value="0" />
   <parameter name="use_default_mpu_clk" value="true" />
  </module>
- <module name="fighter_audio_0" kind="fighter_audio_wm8731" version="1.0" enabled="1" />
- <module name="vga_ball_0" kind="vga_ball" version="1.0" enabled="1" />
  <connection
    kind="avalon"
    version="21.1"
    start="hps_0.h2f_lw_axi_master"
-   end="fighter_audio_0.avs">
+   end="fighter_audio_0.avalon_slave_0">
   <parameter name="arbitrationPriority" value="1" />
   <parameter name="baseAddress" value="0x3040" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
-   kind="avalon"
+   kind="clock"
    version="21.1"
-   start="hps_0.h2f_lw_axi_master"
-   end="vga_ball_0.avalon_slave_0">
-  <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x0000" />
-  <parameter name="defaultConnection" value="false" />
- </connection>
- <connection kind="clock" version="21.1" start="clk_0.clk" end="fighter_audio_0.clock" />
- <connection kind="clock" version="21.1" start="clk_0.clk" end="vga_ball_0.clock" />
+   start="clk_0.clk"
+   end="fighter_audio_0.clock" />
  <connection
    kind="clock"
    version="21.1"
@@ -643,11 +636,6 @@
    version="21.1"
    start="clk_0.clk"
    end="hps_0.h2f_lw_axi_clock" />
- <connection
-   kind="reset"
-   version="21.1"
-   start="clk_0.clk_reset"
-   end="vga_ball_0.reset" />
  <connection
    kind="reset"
    version="21.1"

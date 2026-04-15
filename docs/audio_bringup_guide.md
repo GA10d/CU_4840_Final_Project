@@ -131,7 +131,7 @@ export FIGHTER_AUDIO_BRIDGE_RESET_ADDR=0xFFD0501C
 
 ### 5.3 Create a Platform Designer Component
 
-像 `Lab 3` 的 `vga_ball.sv` 一样，把这个 SV 包装成一个 Platform Designer component。
+把这个 SV 包装成一个 Platform Designer component。
 
 步骤：
 

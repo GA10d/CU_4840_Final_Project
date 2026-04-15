@@ -141,9 +141,9 @@ cd ~/github/CU_4840_Final_Project/lab3-hw
 
 ### 6.2 新建 component
 
-仓库里已经带了 [fighter_audio_hw.tcl](/Users/guozhewen/Documents/GitHub/CU_4840_Final_Project/lab3-hw/fighter_audio_hw.tcl)，所以多数情况下 Platform Designer 打开 `soc_system.qsys` 时就能识别这个组件。
+仓库里已经带了 [fighter_audio_hw.tcl](/Users/guozhewen/Documents/GitHub/CU_4840_Final_Project/hw/fighter_audio_hw.tcl)，所以多数情况下 Platform Designer 打开 `soc_system.qsys` 时就能识别这个组件。
 
-如果你们还是想手工重新建 component，步骤和 `Lab 3` 里处理 `vga_ball.sv` 类似：
+如果你们还是想手工重新建 component，步骤和创建普通自定义 component 类似：
 
 1. `File -> New Component`
 2. 名字填 `fighter_audio_wm8731`

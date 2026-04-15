@@ -1,5 +1,15 @@
 	component soc_system is
 		port (
+			audio_adcdat                 : in    std_logic                     := 'X';             -- adcdat
+			audio_adclrck                : out   std_logic;                                        -- adclrck
+			audio_bclk                   : out   std_logic;                                        -- bclk
+			audio_dacdat                 : out   std_logic;                                        -- dacdat
+			audio_daclrck                : out   std_logic;                                        -- daclrck
+			audio_xck                    : out   std_logic;                                        -- xck
+			audio_init_done              : out   std_logic;                                        -- init_done
+			audio_init_error             : out   std_logic;                                        -- init_error
+			audio_i2c_sclk               : inout std_logic                     := 'X';             -- i2c_sclk
+			audio_i2c_sdat               : inout std_logic                     := 'X';             -- i2c_sdat
 			clk_clk                      : in    std_logic                     := 'X';             -- clk
 			hps_hps_io_emac1_inst_TX_CLK : out   std_logic;                                        -- hps_io_emac1_inst_TX_CLK
 			hps_hps_io_emac1_inst_TXD0   : out   std_logic;                                        -- hps_io_emac1_inst_TXD0
@@ -66,15 +76,7 @@
 			hps_ddr3_mem_odt             : out   std_logic;                                        -- mem_odt
 			hps_ddr3_mem_dm              : out   std_logic_vector(3 downto 0);                     -- mem_dm
 			hps_ddr3_oct_rzqin           : in    std_logic                     := 'X';             -- oct_rzqin
-			reset_reset_n                : in    std_logic                     := 'X';             -- reset_n
-			vga_b                        : out   std_logic_vector(7 downto 0);                     -- b
-			vga_blank_n                  : out   std_logic;                                        -- blank_n
-			vga_clk                      : out   std_logic;                                        -- clk
-			vga_g                        : out   std_logic_vector(7 downto 0);                     -- g
-			vga_hs                       : out   std_logic;                                        -- hs
-			vga_r                        : out   std_logic_vector(7 downto 0);                     -- r
-			vga_sync_n                   : out   std_logic;                                        -- sync_n
-			vga_vs                       : out   std_logic                                         -- vs
+			reset_reset_n                : in    std_logic                     := 'X'              -- reset_n
 		);
 	end component soc_system;
 

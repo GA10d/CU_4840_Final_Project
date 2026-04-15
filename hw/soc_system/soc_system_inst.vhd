@@ -67,14 +67,16 @@
 			hps_ddr3_mem_dm              : out   std_logic_vector(3 downto 0);                     -- mem_dm
 			hps_ddr3_oct_rzqin           : in    std_logic                     := 'X';             -- oct_rzqin
 			reset_reset_n                : in    std_logic                     := 'X';             -- reset_n
-			vga_b                        : out   std_logic_vector(7 downto 0);                     -- b
-			vga_blank_n                  : out   std_logic;                                        -- blank_n
-			vga_clk                      : out   std_logic;                                        -- clk
-			vga_g                        : out   std_logic_vector(7 downto 0);                     -- g
-			vga_hs                       : out   std_logic;                                        -- hs
-			vga_r                        : out   std_logic_vector(7 downto 0);                     -- r
-			vga_sync_n                   : out   std_logic;                                        -- sync_n
-			vga_vs                       : out   std_logic                                         -- vs
+			audio_adcdat                 : in    std_logic                     := 'X';             -- adcdat
+			audio_adclrck                : out   std_logic;                                        -- adclrck
+			audio_bclk                   : out   std_logic;                                        -- bclk
+			audio_dacdat                 : out   std_logic;                                        -- dacdat
+			audio_daclrck                : out   std_logic;                                        -- daclrck
+			audio_xck                    : out   std_logic;                                        -- xck
+			audio_init_done              : out   std_logic;                                        -- init_done
+			audio_init_error             : out   std_logic;                                        -- init_error
+			audio_i2c_sclk               : inout std_logic                     := 'X';             -- i2c_sclk
+			audio_i2c_sdat               : inout std_logic                     := 'X'              -- i2c_sdat
 		);
 	end component soc_system;
 
@@ -147,13 +149,15 @@
 			hps_ddr3_mem_dm              => CONNECTED_TO_hps_ddr3_mem_dm,              --         .mem_dm
 			hps_ddr3_oct_rzqin           => CONNECTED_TO_hps_ddr3_oct_rzqin,           --         .oct_rzqin
 			reset_reset_n                => CONNECTED_TO_reset_reset_n,                --    reset.reset_n
-			vga_b                        => CONNECTED_TO_vga_b,                        --      vga.b
-			vga_blank_n                  => CONNECTED_TO_vga_blank_n,                  --         .blank_n
-			vga_clk                      => CONNECTED_TO_vga_clk,                      --         .clk
-			vga_g                        => CONNECTED_TO_vga_g,                        --         .g
-			vga_hs                       => CONNECTED_TO_vga_hs,                       --         .hs
-			vga_r                        => CONNECTED_TO_vga_r,                        --         .r
-			vga_sync_n                   => CONNECTED_TO_vga_sync_n,                   --         .sync_n
-			vga_vs                       => CONNECTED_TO_vga_vs                        --         .vs
+			audio_adcdat                 => CONNECTED_TO_audio_adcdat,                 --    audio.adcdat
+			audio_adclrck                => CONNECTED_TO_audio_adclrck,                --         .adclrck
+			audio_bclk                   => CONNECTED_TO_audio_bclk,                   --         .bclk
+			audio_dacdat                 => CONNECTED_TO_audio_dacdat,                 --         .dacdat
+			audio_daclrck                => CONNECTED_TO_audio_daclrck,                --         .daclrck
+			audio_xck                    => CONNECTED_TO_audio_xck,                    --         .xck
+			audio_init_done              => CONNECTED_TO_audio_init_done,              --         .init_done
+			audio_init_error             => CONNECTED_TO_audio_init_error,             --         .init_error
+			audio_i2c_sclk               => CONNECTED_TO_audio_i2c_sclk,               --         .i2c_sclk
+			audio_i2c_sdat               => CONNECTED_TO_audio_i2c_sdat                --         .i2c_sdat
 		);
 

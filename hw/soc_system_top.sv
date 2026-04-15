@@ -190,8 +190,8 @@ module soc_system_top(
 );
 
    wire         hps_i2c_control_hps;
-   wire         audio_status_init_done;
-   wire         audio_status_init_error;
+   wire         audio_init_done;
+   wire         audio_init_error;
 
    soc_system soc_system0(
      .clk_clk                      ( CLOCK_50 ),
@@ -272,25 +272,16 @@ module soc_system_top(
      .hps_hps_io_gpio_inst_GPIO54  ( HPS_KEY ),
      .hps_hps_io_gpio_inst_GPIO61  ( HPS_GSENSOR_INT ),
 
-     .vga_r                       ( VGA_R ),
-     .vga_g                       ( VGA_G ),
-     .vga_b                       ( VGA_B ),
-     .vga_clk                     ( VGA_CLK ),
-     .vga_hs                      ( VGA_HS ),
-     .vga_vs                      ( VGA_VS ),
-     .vga_blank_n                 ( VGA_BLANK_N ),
-     .vga_sync_n                  ( VGA_SYNC_N ),
-
      .audio_xck                   ( AUD_XCK ),
      .audio_bclk                  ( AUD_BCLK ),
      .audio_daclrck               ( AUD_DACLRCK ),
      .audio_adclrck               ( AUD_ADCLRCK ),
      .audio_dacdat                ( AUD_DACDAT ),
      .audio_adcdat                ( AUD_ADCDAT ),
-     .fpga_i2c_sclk               ( FPGA_I2C_SCLK ),
-     .fpga_i2c_sdat               ( FPGA_I2C_SDAT ),
-     .audio_status_init_done      ( audio_status_init_done ),
-     .audio_status_init_error     ( audio_status_init_error )
+     .audio_i2c_sclk              ( FPGA_I2C_SCLK ),
+     .audio_i2c_sdat              ( FPGA_I2C_SDAT ),
+     .audio_init_done             ( audio_init_done ),
+     .audio_init_error            ( audio_init_error )
   );
 
    // Keep the codec I2C mux on the FPGA side so the audio core owns WM8731 init.
@@ -323,7 +314,7 @@ module soc_system_top(
 
    assign IRDA_TXD = SW[0];
 
-   assign LEDR = { 8'b0, audio_status_init_error, audio_status_init_done };
+   assign LEDR = { 8'b0, audio_init_error, audio_init_done };
 
    assign PS2_CLK = SW[1] ? SW[0] : 1'bZ;
    assign PS2_CLK2 = SW[1] ? SW[0] : 1'bZ;
@@ -332,9 +323,9 @@ module soc_system_top(
 
    assign TD_RESET_N = SW[0];
 
-   //assign {VGA_R, VGA_G, VGA_B} = { 24{ SW[0] } };
-   //assign {VGA_BLANK_N, VGA_CLK,
-//	   VGA_HS, VGA_SYNC_N, VGA_VS} = { 5{ SW[0] } };
+   // Keep the unused VGA pins driven to a benign state in the audio-only build.
+   assign {VGA_R, VGA_G, VGA_B} = 24'h000000;
+   assign {VGA_BLANK_N, VGA_CLK, VGA_HS, VGA_SYNC_N, VGA_VS} = 5'b00000;
 
 							          
 endmodule

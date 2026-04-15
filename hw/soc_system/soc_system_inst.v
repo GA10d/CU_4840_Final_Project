@@ -66,13 +66,15 @@
 		.hps_ddr3_mem_dm              (<connected-to-hps_ddr3_mem_dm>),              //         .mem_dm
 		.hps_ddr3_oct_rzqin           (<connected-to-hps_ddr3_oct_rzqin>),           //         .oct_rzqin
 		.reset_reset_n                (<connected-to-reset_reset_n>),                //    reset.reset_n
-		.vga_b                        (<connected-to-vga_b>),                        //      vga.b
-		.vga_blank_n                  (<connected-to-vga_blank_n>),                  //         .blank_n
-		.vga_clk                      (<connected-to-vga_clk>),                      //         .clk
-		.vga_g                        (<connected-to-vga_g>),                        //         .g
-		.vga_hs                       (<connected-to-vga_hs>),                       //         .hs
-		.vga_r                        (<connected-to-vga_r>),                        //         .r
-		.vga_sync_n                   (<connected-to-vga_sync_n>),                   //         .sync_n
-		.vga_vs                       (<connected-to-vga_vs>)                        //         .vs
+		.audio_adcdat                 (<connected-to-audio_adcdat>),                 //    audio.adcdat
+		.audio_adclrck                (<connected-to-audio_adclrck>),                //         .adclrck
+		.audio_bclk                   (<connected-to-audio_bclk>),                   //         .bclk
+		.audio_dacdat                 (<connected-to-audio_dacdat>),                 //         .dacdat
+		.audio_daclrck                (<connected-to-audio_daclrck>),                //         .daclrck
+		.audio_xck                    (<connected-to-audio_xck>),                    //         .xck
+		.audio_init_done              (<connected-to-audio_init_done>),              //         .init_done
+		.audio_init_error             (<connected-to-audio_init_error>),             //         .init_error
+		.audio_i2c_sclk               (<connected-to-audio_i2c_sclk>),               //         .i2c_sclk
+		.audio_i2c_sdat               (<connected-to-audio_i2c_sdat>)                //         .i2c_sdat
 	);
 
