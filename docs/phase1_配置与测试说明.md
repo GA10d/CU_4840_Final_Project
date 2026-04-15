@@ -217,6 +217,10 @@ apt install -y alsa-utils
 - `DE1-SoC manual` 里音频演示明确写了要接 `LINE-OUT`
 - 如果接的是无源喇叭，声音可能不够
 
+如果你们现在要优先把板载 `WM8731` 路径跑通，而不是只测命令行播放器后端，直接看：
+
+- [audio_bringup_guide.md](/Users/guozhewen/Documents/GitHub/CU_4840_Final_Project/docs/audio_bringup_guide.md)
+
 ### 7.3 编译并运行
 
 ```bash

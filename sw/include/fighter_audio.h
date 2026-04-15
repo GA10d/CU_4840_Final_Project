@@ -50,7 +50,10 @@ typedef struct {
   int backend_logged;
   int player_kind;
   int loop_pid;
+  unsigned long mmio_addr;
+  unsigned long bridge_reset_addr;
   char aplay_device[64];
+  char status_detail[160];
   void *backend_data;
 } fighter_audio_context_t;
 

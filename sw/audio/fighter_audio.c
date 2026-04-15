@@ -2,8 +2,10 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <inttypes.h>
 #include <pthread.h>
 #include <signal.h>
+#include <stdarg.h>
 #include <stdint.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -32,6 +34,15 @@ enum {
   FIGHTER_AUDIO_MMIO_CONTROL_CLEAR_WRITE = 1 << 3
 };
 
+/* Lab 3 style MMIO contract expected by the HPS-side audio bring-up path. */
+enum {
+  FIGHTER_AUDIO_MMIO_REG_CONTROL = 0,
+  FIGHTER_AUDIO_MMIO_REG_FIFOSPACE = 1,
+  FIGHTER_AUDIO_MMIO_REG_LEFTDATA = 2,
+  FIGHTER_AUDIO_MMIO_REG_RIGHTDATA = 3,
+  FIGHTER_AUDIO_MMIO_REG_COUNT = 4
+};
+
 typedef struct {
   int16_t *samples;
   size_t frame_count;
@@ -57,8 +68,22 @@ typedef struct {
   int playing;
 } fighter_audio_mmio_state_t;
 
-static const off_t k_fighter_audio_bridge_reset_addr = (off_t)0xFFD0501C;
-static const off_t k_fighter_audio_mmio_addr = (off_t)0xFF203040;
+static const off_t k_fighter_audio_default_bridge_reset_addr = (off_t)0xFFD0501C;
+static const off_t k_fighter_audio_default_mmio_addr = (off_t)0xFF203040;
+
+static void fighter_audio_set_status_detail(fighter_audio_context_t *context,
+                                            const char *fmt,
+                                            ...) {
+  va_list args;
+
+  if (!context || !fmt) {
+    return;
+  }
+
+  va_start(args, fmt);
+  vsnprintf(context->status_detail, sizeof(context->status_detail), fmt, args);
+  va_end(args);
+}
 
 static const char *fighter_find_in_path(const char *name) {
   static char resolved_path[512];
@@ -166,6 +191,33 @@ static int fighter_audio_copy_string(const char *src, char *dst, size_t dst_size
   }
 
   memcpy(dst, src, strlen(src) + 1);
+  return 0;
+}
+
+static int fighter_audio_parse_env_address(const char *env_name,
+                                           off_t default_value,
+                                           off_t *value_out) {
+  const char *text;
+  char *end;
+  unsigned long long parsed;
+
+  if (!env_name || !value_out) {
+    return -1;
+  }
+
+  text = getenv(env_name);
+  if (!text || text[0] == '\0') {
+    *value_out = default_value;
+    return 0;
+  }
+
+  errno = 0;
+  parsed = strtoull(text, &end, 0);
+  if (errno != 0 || end == text || !end || *end != '\0') {
+    return -1;
+  }
+
+  *value_out = (off_t)parsed;
   return 0;
 }
 
@@ -571,13 +623,14 @@ static void fighter_audio_mmio_clear_fifos(fighter_audio_mmio_state_t *state) {
     return;
   }
 
-  state->audio_regs[0] =
+  state->audio_regs[FIGHTER_AUDIO_MMIO_REG_CONTROL] =
       FIGHTER_AUDIO_MMIO_CONTROL_CLEAR_READ |
       FIGHTER_AUDIO_MMIO_CONTROL_CLEAR_WRITE;
-  state->audio_regs[0] = 0;
+  state->audio_regs[FIGHTER_AUDIO_MMIO_REG_CONTROL] = 0;
 }
 
-static int fighter_audio_mmio_probe(fighter_audio_mmio_state_t *state) {
+static int fighter_audio_mmio_probe(fighter_audio_mmio_state_t *state,
+                                    uint32_t *fifospace_out) {
   uint32_t fifospace;
   uint32_t write_space_left;
   uint32_t write_space_right;
@@ -587,7 +640,10 @@ static int fighter_audio_mmio_probe(fighter_audio_mmio_state_t *state) {
   }
 
   fighter_audio_mmio_clear_fifos(state);
-  fifospace = state->audio_regs[1];
+  fifospace = state->audio_regs[FIGHTER_AUDIO_MMIO_REG_FIFOSPACE];
+  if (fifospace_out) {
+    *fifospace_out = fifospace;
+  }
   write_space_left = (fifospace >> 24) & 0xFFU;
   write_space_right = (fifospace >> 16) & 0xFFU;
 
@@ -667,7 +723,7 @@ static void fighter_audio_mmio_fill_fifo_locked(fighter_audio_mmio_state_t *stat
     return;
   }
 
-  fifospace = state->audio_regs[1];
+  fifospace = state->audio_regs[FIGHTER_AUDIO_MMIO_REG_FIFOSPACE];
   writable_frames = (size_t)((fifospace >> 24) & 0xFFU);
   if (((fifospace >> 16) & 0xFFU) < writable_frames) {
     writable_frames = (size_t)((fifospace >> 16) & 0xFFU);
@@ -688,8 +744,10 @@ static void fighter_audio_mmio_fill_fifo_locked(fighter_audio_mmio_state_t *stat
 
     left_sample = clip->samples[state->current_frame * 2U];
     right_sample = clip->samples[state->current_frame * 2U + 1U];
-    state->audio_regs[2] = (uint32_t)((int32_t)left_sample * 65536);
-    state->audio_regs[3] = (uint32_t)((int32_t)right_sample * 65536);
+    state->audio_regs[FIGHTER_AUDIO_MMIO_REG_LEFTDATA] =
+        (uint32_t)((int32_t)left_sample * 65536);
+    state->audio_regs[FIGHTER_AUDIO_MMIO_REG_RIGHTDATA] =
+        (uint32_t)((int32_t)right_sample * 65536);
     state->current_frame++;
   }
 }
@@ -742,6 +800,10 @@ static void fighter_audio_mmio_destroy(fighter_audio_mmio_state_t *state) {
 
 static int fighter_audio_mmio_init(fighter_audio_context_t *context) {
   fighter_audio_mmio_state_t *state;
+  off_t bridge_reset_addr;
+  off_t mmio_addr;
+  uint32_t fifospace = 0;
+  int thread_create_result;
 
   if (!context) {
     return -1;
@@ -759,49 +821,97 @@ static int fighter_audio_mmio_init(fighter_audio_context_t *context) {
   }
   state->mutex_initialized = 1;
 
-  state->mem_fd = open("/dev/mem", O_RDWR | O_SYNC);
-  if (state->mem_fd < 0) {
+  if (fighter_audio_parse_env_address("FIGHTER_AUDIO_BRIDGE_RESET_ADDR",
+                                      k_fighter_audio_default_bridge_reset_addr,
+                                      &bridge_reset_addr) != 0) {
+    fighter_audio_set_status_detail(
+        context,
+        "WM8731 MMIO: invalid FIGHTER_AUDIO_BRIDGE_RESET_ADDR=%s",
+        getenv("FIGHTER_AUDIO_BRIDGE_RESET_ADDR"));
+    fighter_audio_mmio_destroy(state);
+    return -1;
+  }
+  if (fighter_audio_parse_env_address("FIGHTER_AUDIO_MMIO_ADDR",
+                                      k_fighter_audio_default_mmio_addr,
+                                      &mmio_addr) != 0) {
+    fighter_audio_set_status_detail(
+        context, "WM8731 MMIO: invalid FIGHTER_AUDIO_MMIO_ADDR=%s",
+        getenv("FIGHTER_AUDIO_MMIO_ADDR"));
     fighter_audio_mmio_destroy(state);
     return -1;
   }
 
-  if (fighter_audio_map_physical(state->mem_fd, k_fighter_audio_bridge_reset_addr,
+  context->bridge_reset_addr = (unsigned long)bridge_reset_addr;
+  context->mmio_addr = (unsigned long)mmio_addr;
+
+  state->mem_fd = open("/dev/mem", O_RDWR | O_SYNC);
+  if (state->mem_fd < 0) {
+    fighter_audio_set_status_detail(context, "WM8731 MMIO: open /dev/mem failed: %s",
+                                    strerror(errno));
+    fighter_audio_mmio_destroy(state);
+    return -1;
+  }
+
+  if (fighter_audio_map_physical(state->mem_fd, bridge_reset_addr,
                                  sizeof(uint32_t), &state->bridge_map,
                                  &state->bridge_map_length,
                                  &state->bridge_reset_reg) != 0) {
+    fighter_audio_set_status_detail(context,
+                                    "WM8731 MMIO: map bridge reset 0x%08lX failed: %s",
+                                    (unsigned long)bridge_reset_addr,
+                                    strerror(errno));
     fighter_audio_mmio_destroy(state);
     return -1;
   }
   if (fighter_audio_mmio_enable_bridges(state) != 0) {
+    fighter_audio_set_status_detail(context,
+                                    "WM8731 MMIO: failed to enable FPGA bridges");
     fighter_audio_mmio_destroy(state);
     return -1;
   }
 
-  if (fighter_audio_map_physical(state->mem_fd, k_fighter_audio_mmio_addr,
-                                 4U * sizeof(uint32_t), &state->audio_map,
+  if (fighter_audio_map_physical(state->mem_fd, mmio_addr,
+                                 FIGHTER_AUDIO_MMIO_REG_COUNT *
+                                     sizeof(uint32_t),
+                                 &state->audio_map,
                                  &state->audio_map_length,
                                  &state->audio_regs) != 0) {
+    fighter_audio_set_status_detail(context,
+                                    "WM8731 MMIO: map audio core 0x%08lX failed: %s",
+                                    (unsigned long)mmio_addr,
+                                    strerror(errno));
     fighter_audio_mmio_destroy(state);
     return -1;
   }
-  if (fighter_audio_mmio_probe(state) != 0) {
+  if (fighter_audio_mmio_probe(state, &fifospace) != 0) {
+    fighter_audio_set_status_detail(
+        context,
+        "WM8731 MMIO: audio FIFO probe failed at 0x%08lX (fifospace=0x%08" PRIX32 ")",
+        (unsigned long)mmio_addr, fifospace);
     fighter_audio_mmio_destroy(state);
     return -1;
   }
 
   if (fighter_audio_mmio_load_clips(state) != 0) {
+    fighter_audio_set_status_detail(context,
+                                    "WM8731 MMIO: failed to load WAV assets");
     fighter_audio_mmio_destroy(state);
     return -1;
   }
 
-  if (pthread_create(&state->thread, NULL, fighter_audio_mmio_thread_main,
-                     state) != 0) {
+  thread_create_result =
+      pthread_create(&state->thread, NULL, fighter_audio_mmio_thread_main, state);
+  if (thread_create_result != 0) {
+    fighter_audio_set_status_detail(context,
+                                    "WM8731 MMIO: audio thread start failed: %s",
+                                    strerror(thread_create_result));
     fighter_audio_mmio_destroy(state);
     return -1;
   }
   state->thread_started = 1;
 
   context->backend = FIGHTER_AUDIO_BACKEND_MMIO;
+  context->status_detail[0] = '\0';
   context->backend_data = state;
   return 0;
 }
@@ -1021,13 +1131,19 @@ const char *fighter_audio_backend_name(const fighter_audio_context_t *context) {
   static char description[128];
 
   if (!context || context->backend == FIGHTER_AUDIO_BACKEND_DISABLED) {
+    if (context && context->status_detail[0] != '\0') {
+      snprintf(description, sizeof(description), "disabled (%s)",
+               context->status_detail);
+      return description;
+    }
     return "disabled";
   }
 
   switch (context->backend) {
     case FIGHTER_AUDIO_BACKEND_MMIO:
       snprintf(description, sizeof(description), "wm8731-mmio (0x%08lX)",
-               (unsigned long)k_fighter_audio_mmio_addr);
+               context->mmio_addr != 0 ? context->mmio_addr
+                                       : (unsigned long)k_fighter_audio_default_mmio_addr);
       return description;
     case FIGHTER_AUDIO_BACKEND_COMMAND:
       switch (context->player_kind) {
@@ -1070,6 +1186,9 @@ int fighter_audio_init(fighter_audio_context_t *context,
 
   memset(context, 0, sizeof(*context));
   context->backend = FIGHTER_AUDIO_BACKEND_DISABLED;
+  context->mmio_addr = (unsigned long)k_fighter_audio_default_mmio_addr;
+  context->bridge_reset_addr =
+      (unsigned long)k_fighter_audio_default_bridge_reset_addr;
 
   enable_command_audio = options && options->enable_command_audio;
   if (!enable_command_audio) {
@@ -1083,9 +1202,15 @@ int fighter_audio_init(fighter_audio_context_t *context,
   if (fighter_audio_prepare_command_backend(context) == 0 &&
       context->player_kind != FIGHTER_PLAYER_KIND_NONE) {
     context->backend = FIGHTER_AUDIO_BACKEND_COMMAND;
+    context->status_detail[0] = '\0';
   } else {
-    fprintf(stderr,
-            "audio disabled: no usable WM8731/MMIO or command backend found\n");
+    if (context->status_detail[0] != '\0') {
+      fprintf(stderr, "audio disabled: %s\n", context->status_detail);
+    } else {
+      fighter_audio_set_status_detail(
+          context, "no usable WM8731/MMIO or command backend found");
+      fprintf(stderr, "audio disabled: %s\n", context->status_detail);
+    }
   }
 
   return 0;

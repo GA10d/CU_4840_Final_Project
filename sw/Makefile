@@ -31,6 +31,10 @@ TEST_TARGET := phase1_test
 TEST_SRCS := tests/test_phase1.c $(COMMON_SRCS)
 TEST_OBJS := $(TEST_SRCS:.c=.o)
 
+AUDIO_DEMO_TARGET := audio_demo
+AUDIO_DEMO_SRCS := main_audio_demo.c audio/fighter_audio.c
+AUDIO_DEMO_OBJS := $(AUDIO_DEMO_SRCS:.c=.o)
+
 INPUT_DEMO_TARGET := input_demo
 PHASE1_USB_OBJS :=
 INPUT_DEMO_SRCS :=
@@ -57,9 +61,10 @@ endif
 .PHONY: all clean rebuild FORCE
 
 DEPFILES := $(sort $(PHASE1_OBJS:.o=.d) $(TEST_OBJS:.o=.d) \
-	$(PHASE1_USB_OBJS:.o=.d) $(INPUT_DEMO_OBJS:.o=.d))
+	$(AUDIO_DEMO_OBJS:.o=.d) $(PHASE1_USB_OBJS:.o=.d) \
+	$(INPUT_DEMO_OBJS:.o=.d))
 
-all: $(PHASE1_TARGET) $(TEST_TARGET) $(USB_TARGETS)
+all: $(PHASE1_TARGET) $(TEST_TARGET) $(AUDIO_DEMO_TARGET) $(USB_TARGETS)
 
 FORCE:
 
@@ -94,6 +99,10 @@ $(TEST_TARGET): $(TEST_OBJS) $(BUILD_SIGNATURE_FILE)
 	$(CC) $(CFLAGS) $(CPPFLAGS) $(LDFLAGS) -o $@ \
 		$(filter %.o,$^) $(LDLIBS)
 
+$(AUDIO_DEMO_TARGET): $(AUDIO_DEMO_OBJS) $(BUILD_SIGNATURE_FILE)
+	$(CC) $(CFLAGS) $(CPPFLAGS) $(LDFLAGS) -o $@ \
+		$(filter %.o,$^) $(LDLIBS)
+
 ifeq ($(HAVE_LIBUSB),1)
 $(INPUT_DEMO_TARGET): $(INPUT_DEMO_OBJS) $(BUILD_SIGNATURE_FILE)
 	$(CC) $(CFLAGS) $(CPPFLAGS) $(LDFLAGS) -o $@ \
@@ -107,8 +116,9 @@ endif
 -include $(DEPFILES)
 
 clean:
-	$(RM) $(PHASE1_TARGET) $(TEST_TARGET) $(INPUT_DEMO_TARGET) \
-		$(PHASE1_OBJS) $(TEST_OBJS) $(PHASE1_USB_OBJS) $(INPUT_DEMO_OBJS) \
+	$(RM) $(PHASE1_TARGET) $(TEST_TARGET) $(AUDIO_DEMO_TARGET) \
+		$(INPUT_DEMO_TARGET) $(PHASE1_OBJS) $(TEST_OBJS) $(AUDIO_DEMO_OBJS) \
+		$(PHASE1_USB_OBJS) $(INPUT_DEMO_OBJS) \
 		$(DEPFILES) $(BUILD_SIGNATURE_FILE)
 
 rebuild: clean
