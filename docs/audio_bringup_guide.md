@@ -9,12 +9,14 @@
 3. 提供一个最小可复现的音频验证程序
 4. 给出常见故障的定位方法
 
-当前仓库已经具备 HPS 侧的软件播放链路，但没有随仓库一起提交完整的 Quartus/Platform Designer 音频工程。因此，这份文档会把“软件已经准备好的部分”和“硬件还需要满足的条件”都写清楚。
+当前仓库已经具备 HPS 侧的软件播放链路，并且已经补进了一份 `lab3-hw` 风格的硬件工程骨架。因此，这份文档会把“仓库里已经准备好的部分”和“上板前还需要走的生成流程”都写清楚。
 
 我已经在仓库里补了一版最小 FPGA 侧实现，放在：
 
 - [fighter_audio_wm8731.sv](/Users/guozhewen/Documents/GitHub/CU_4840_Final_Project/hw/audio/fighter_audio_wm8731.sv)
 - [hw/audio/README.md](/Users/guozhewen/Documents/GitHub/CU_4840_Final_Project/hw/audio/README.md)
+- [lab3-hw](/Users/guozhewen/Documents/GitHub/CU_4840_Final_Project/lab3-hw)
+- [micro18_to_board_audio_runbook.md](/Users/guozhewen/Documents/GitHub/CU_4840_Final_Project/docs/micro18_to_board_audio_runbook.md)
 
 ## 2. What Is Already In This Repo
 
