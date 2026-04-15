@@ -184,8 +184,11 @@ module fighter_audio_wm8731 #(
           codec_init_done
       };
       2'd1: avs_readdata = {left_space, right_space, 16'h0000};
-      2'd2: avs_readdata = (left_count != 0) ? left_fifo[left_rd_ptr] : 32'h00000000;
-      2'd3: avs_readdata = (right_count != 0) ? right_fifo[right_rd_ptr] : 32'h00000000;
+      // The sample write ports are write-only from software's point of view.
+      // Returning zero here avoids introducing asynchronous RAM reads that
+      // prevent the FIFOs from inferring to on-chip memory blocks.
+      2'd2: avs_readdata = 32'h00000000;
+      2'd3: avs_readdata = 32'h00000000;
       default: avs_readdata = 32'h00000000;
     endcase
   end
