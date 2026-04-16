@@ -189,7 +189,6 @@ module soc_system_top(
  output        VGA_VS
 );
 
-   wire         hps_i2c_control_hps;
    wire         audio_init_done;
    wire         audio_init_error;
 
@@ -267,7 +266,7 @@ module soc_system_top(
      .hps_hps_io_gpio_inst_GPIO35  ( HPS_ENET_INT_N ),
      .hps_hps_io_gpio_inst_GPIO40  ( HPS_LTC_GPIO ),
 
-     .hps_hps_io_gpio_inst_GPIO48  ( hps_i2c_control_hps ),
+     .hps_hps_io_gpio_inst_GPIO48  ( HPS_I2C_CONTROL ),
      .hps_hps_io_gpio_inst_GPIO53  ( HPS_LED ),
      .hps_hps_io_gpio_inst_GPIO54  ( HPS_KEY ),
      .hps_hps_io_gpio_inst_GPIO61  ( HPS_GSENSOR_INT ),
@@ -283,9 +282,6 @@ module soc_system_top(
      .audio_init_done             ( audio_init_done ),
      .audio_init_error            ( audio_init_error )
   );
-
-   // Keep the codec I2C mux on the FPGA side so the audio core owns WM8731 init.
-   assign HPS_I2C_CONTROL = 1'b0;
 
    // The following quiet the "no driver" warnings for output
    // pins and should be removed if you use any of these peripherals

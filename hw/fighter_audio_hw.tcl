@@ -48,34 +48,34 @@ add_fileset_file fighter_audio.sv SYSTEM_VERILOG PATH fighter_audio.sv TOP_LEVEL
 # 
 # parameters
 # 
-add_parameter FIFO_DEPTH STRING 128
+add_parameter FIFO_DEPTH INTEGER 128
 set_parameter_property FIFO_DEPTH DEFAULT_VALUE 128
 set_parameter_property FIFO_DEPTH DISPLAY_NAME FIFO_DEPTH
-set_parameter_property FIFO_DEPTH TYPE STRING
+set_parameter_property FIFO_DEPTH TYPE INTEGER
 set_parameter_property FIFO_DEPTH UNITS None
 set_parameter_property FIFO_DEPTH HDL_PARAMETER true
-add_parameter CLK_HZ STRING 50000000
+add_parameter CLK_HZ INTEGER 50000000
 set_parameter_property CLK_HZ DEFAULT_VALUE 50000000
 set_parameter_property CLK_HZ DISPLAY_NAME CLK_HZ
-set_parameter_property CLK_HZ TYPE STRING
+set_parameter_property CLK_HZ TYPE INTEGER
 set_parameter_property CLK_HZ UNITS None
 set_parameter_property CLK_HZ HDL_PARAMETER true
-add_parameter I2C_RATE_HZ STRING 100000
+add_parameter I2C_RATE_HZ INTEGER 100000
 set_parameter_property I2C_RATE_HZ DEFAULT_VALUE 100000
 set_parameter_property I2C_RATE_HZ DISPLAY_NAME I2C_RATE_HZ
-set_parameter_property I2C_RATE_HZ TYPE STRING
+set_parameter_property I2C_RATE_HZ TYPE INTEGER
 set_parameter_property I2C_RATE_HZ UNITS None
 set_parameter_property I2C_RATE_HZ HDL_PARAMETER true
-add_parameter XCK_DIV STRING 4
+add_parameter XCK_DIV INTEGER 4
 set_parameter_property XCK_DIV DEFAULT_VALUE 4
 set_parameter_property XCK_DIV DISPLAY_NAME XCK_DIV
-set_parameter_property XCK_DIV TYPE STRING
+set_parameter_property XCK_DIV TYPE INTEGER
 set_parameter_property XCK_DIV UNITS None
 set_parameter_property XCK_DIV HDL_PARAMETER true
-add_parameter BCLK_DIV STRING 16
+add_parameter BCLK_DIV INTEGER 16
 set_parameter_property BCLK_DIV DEFAULT_VALUE 16
 set_parameter_property BCLK_DIV DISPLAY_NAME BCLK_DIV
-set_parameter_property BCLK_DIV TYPE STRING
+set_parameter_property BCLK_DIV TYPE INTEGER
 set_parameter_property BCLK_DIV UNITS None
 set_parameter_property BCLK_DIV HDL_PARAMETER true
 add_parameter I2C_DEVICE_ADDR STD_LOGIC_VECTOR 26
@@ -181,4 +181,3 @@ add_interface_port audio codec_init_done init_done Output 1
 add_interface_port audio codec_init_error init_error Output 1
 add_interface_port audio fpga_i2c_sclk i2c_sclk Bidir 1
 add_interface_port audio fpga_i2c_sdat i2c_sdat Bidir 1
-

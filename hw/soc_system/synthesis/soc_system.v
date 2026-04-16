@@ -130,11 +130,11 @@ module soc_system (
 	wire         hps_0_h2f_reset_reset;                                       // hps_0:h2f_rst_n -> rst_controller_001:reset_in0
 
 	fighter_audio_wm8731 #(
-		.FIFO_DEPTH      ("128"),
-		.CLK_HZ          ("50000000"),
-		.I2C_RATE_HZ     ("100000"),
-		.XCK_DIV         ("4"),
-		.BCLK_DIV        ("16"),
+		.FIFO_DEPTH      (128),
+		.CLK_HZ          (50000000),
+		.I2C_RATE_HZ     (100000),
+		.XCK_DIV         (4),
+		.BCLK_DIV        (16),
 		.I2C_DEVICE_ADDR (8'b00011010)
 	) fighter_audio_0 (
 		.clk              (clk_clk),                                                     //          clock.clk
