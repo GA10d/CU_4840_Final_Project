@@ -1,0 +1,582 @@
+\documentclass[12pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[margin=1in]{geometry}
+\usepackage{array}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{longtable}
+\usepackage{tabularx}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{float}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue,
+  urlcolor=blue,
+  citecolor=blue
+}
+
+\lstdefinestyle{fighterstyle}{
+  basicstyle=\ttfamily\small,
+  breaklines=true,
+  columns=fullflexible,
+  frame=single,
+  backgroundcolor=\color{gray!5}
+}
+
+\title{Final Project Design Document}
+\author{}
+\date{April 17, 2026}
+
+\begin{document}
+
+\maketitle
+
+This document is based on the current repository state. Its structure follows the provided \texttt{Design Doc.docx} outline, but every section has been rewritten to match the actual implementation in the current codebase. In particular, the document explicitly distinguishes between implemented functionality, software interfaces that are already fixed, and target architecture that is planned but not yet implemented.
+
+\section{Introduction and Overview}
+
+\subsection{Project Summary}
+
+This project implements a two-player fighting game prototype on the \texttt{DE1-SoC} platform. The current repository already contains a working \texttt{Phase 1} end-to-end path:
+
+\begin{itemize}
+  \item The \texttt{HPS} side in C handles two-player input parsing, the game state machine, collision and damage logic, and audio event scheduling.
+  \item Video output is currently implemented as \texttt{HPS}-side software rendering. It prefers \texttt{/dev/fb0} and falls back to console output when a framebuffer is not available.
+  \item The \texttt{FPGA} side already implements a \texttt{WM8731} audio peripheral called \texttt{fighter\_audio\_wm8731}, exposed through lightweight HPS-to-FPGA bridge \texttt{Avalon-MM} registers.
+  \item The codebase already defines a \texttt{fighter\_mmio} game-state register contract for a future \texttt{FPGA VGA} rendering peripheral, but the corresponding VGA custom hardware has not yet been implemented in the current branch.
+\end{itemize}
+
+\subsection{Relationship Between Current Implementation and Target Architecture}
+
+\begin{longtable}{>{\raggedright\arraybackslash}p{0.28\textwidth} >{\raggedright\arraybackslash}p{0.18\textwidth} >{\raggedright\arraybackslash}p{0.42\textwidth}}
+\toprule
+Layer & Current Status & Notes \\
+\midrule
+\endhead
+Dual USB keyboard input & Implemented & \texttt{libusb} polling for up to two HID boot keyboards \\
+Fighting game state machine & Implemented & Menu, match, round end, attack resolution, blocking, timeout, KO \\
+Video output & Implemented on HPS side & Software framebuffer or console rendering \\
+FPGA audio peripheral & Implemented & \texttt{fighter\_audio\_wm8731} with \texttt{WM8731} bring-up \\
+Game-state MMIO encoding & Implemented & \texttt{fighter\_mmio\_encode()} exports 22 32-bit registers \\
+FPGA VGA fighting renderer & Not implemented & The idealized hardware path in the template is not yet present \\
+Linux kernel driver & Not implemented & Current code directly uses \texttt{/dev/fb0} and \texttt{/dev/mem} \\
+\bottomrule
+\end{longtable}
+
+\subsection{Assumptions and Constraints}
+
+\begin{itemize}
+  \item The target board is \texttt{DE1-SoC}.
+  \item The system assumes up to two USB keyboards by default.
+  \item The default input mapping is \texttt{W/A/S/D/J/K/L}.
+  \item The main logic runs at approximately 60 FPS.
+  \item The current \texttt{Quartus} top-level build is an \texttt{audio-only build}, and the \texttt{VGA} top-level pins in \texttt{hw/soc\_system\_top.sv} are tied low.
+\end{itemize}
+
+\section{Top-Level System Block Diagram}
+
+\subsection{Actual Current Data Path}
+
+\begin{lstlisting}[style=fighterstyle]
+USB Keyboard 1/2
+      |
+      v
+usb_hid_keyboard.c  (libusb, up to 2 devices)
+      |
+      v
+fighter_input.c
+      |
+      v
+fighter_game.c  ------------------------------+
+      |                                       |
+      | game state                            | audio events
+      v                                       v
+fighter_renderer.c                    fighter_audio.c
+      |                                       |
+      |                                       +--> command backend fallback
+      |                                            (aplay / ffplay / afplay)
+      v
+/dev/fb0 or console                         /dev/mem + lw bridge
+                                                  |
+                                                  v
+                                       fighter_audio_wm8731 (FPGA)
+                                                  |
+                                                  v
+                                               WM8731
+\end{lstlisting}
+
+\subsection{Planned Extension Path}
+
+The architecture proposed in the original template is still useful, but in the current project it should be interpreted as the next development stage:
+
+\begin{lstlisting}[style=fighterstyle]
+fighter_game.c
+    |
+    v
+fighter_mmio_encode()
+    |
+    v
+HPS-to-FPGA lightweight bridge
+    |
+    v
+Future fighter VGA peripheral
+    |
+    v
+VGA timing / sprite / UI output
+\end{lstlisting}
+
+\subsection{Key Interface Notes}
+
+\begin{itemize}
+  \item USB input interface: \texttt{usb\_hid\_keyboard\_manager\_init()} enumerates \texttt{HID boot keyboard} devices, locates the interrupt IN endpoint, and polls up to two devices.
+  \item Video interface: the current design does not use a custom FPGA VGA protocol. Instead, the HPS user-space program writes directly to \texttt{/dev/fb0}. Therefore, the \texttt{HSYNC/VSYNC/RGB} path mentioned in the template exists only as board-level top-level pins, not as a project-specific VGA module.
+  \item Audio interface: the actual implemented hardware interface is \texttt{Avalon-MM + WM8731 serial audio + I2C}. The HPS accesses the audio peripheral at physical address \texttt{0xFF203040}, while the FPGA handles FIFOs, I2C initialization, and serial sample transmission.
+\end{itemize}
+
+\section{Custom Peripheral Register Map}
+
+The project currently uses two separate register contracts:
+
+\begin{enumerate}
+  \item An \texttt{audio MMIO} contract that is already implemented in FPGA hardware and can be validated on the board.
+  \item A \texttt{fighter MMIO} contract that is already fixed on the software side but is not yet connected to FPGA rendering hardware.
+\end{enumerate}
+
+\subsection{Implemented Audio MMIO Contract}
+
+The default physical base address is \texttt{0xFF203040}, jointly defined by \texttt{sw/audio/fighter\_audio.c} and \texttt{hw/fighter\_audio.sv}.
+
+\begin{longtable}{>{\raggedright\arraybackslash}p{0.12\textwidth} >{\raggedright\arraybackslash}p{0.18\textwidth} >{\raggedright\arraybackslash}p{0.08\textwidth} >{\raggedright\arraybackslash}p{0.48\textwidth}}
+\toprule
+Offset & Name & R/W & Description \\
+\midrule
+\endhead
+\texttt{0x00} & \texttt{control} & RW & Write \texttt{bit2} to clear the read FIFO, write \texttt{bit3} to clear the write FIFO; read returns status bits \\
+\texttt{0x04} & \texttt{fifospace} & R & \texttt{[31:24]} is left-channel available write space, \texttt{[23:16]} is right-channel available write space \\
+\texttt{0x08} & \texttt{leftdata} & W & Left-channel sample word; software writes \texttt{int16 << 16} \\
+\texttt{0x0C} & \texttt{rightdata} & W & Right-channel sample word; software writes \texttt{int16 << 16} \\
+\bottomrule
+\end{longtable}
+
+\noindent The current \texttt{control} status word uses the following bit meanings:
+
+\begin{itemize}
+  \item \texttt{bit0}: \texttt{codec\_init\_done}
+  \item \texttt{bit1}: \texttt{codec\_init\_error}
+  \item \texttt{bit2}: \texttt{tx\_underflow\_seen}
+  \item \texttt{bit3}: \texttt{write\_overflow\_seen}
+  \item \texttt{bits[15:8]}: \texttt{right\_count}
+  \item \texttt{bits[23:16]}: \texttt{left\_count}
+\end{itemize}
+
+\subsection{Software-Frozen Fighter MMIO Contract}
+
+This contract is generated by \texttt{sw/render\_if/fighter\_mmio.c} and validated by \texttt{sw/tests/test\_phase1.c}, but there is not yet a matching FPGA VGA peripheral in the current branch.
+
+The interface exports 22 32-bit words, for a total address span of \texttt{0x58} bytes.
+
+\begin{longtable}{>{\raggedright\arraybackslash}p{0.12\textwidth} >{\raggedright\arraybackslash}p{0.24\textwidth} >{\raggedright\arraybackslash}p{0.16\textwidth} >{\raggedright\arraybackslash}p{0.34\textwidth}}
+\toprule
+Offset & Register & Type & Meaning \\
+\midrule
+\endhead
+\texttt{0x00} & \texttt{GAME\_STATE} & Contracted & \texttt{bit[1:0]} encodes \texttt{MENU/PLAYING/GAME\_OVER}, \texttt{bit8} is the menu animation frame, and \texttt{bit9} indicates whether the game-over screen is ready to accept restart input \\
+\texttt{0x04} & \texttt{PLAYER1\_X} & Contracted & Player 1 top-left \texttt{x} coordinate \\
+\texttt{0x08} & \texttt{PLAYER1\_Y} & Contracted & Player 1 top-left \texttt{y} coordinate \\
+\texttt{0x0C} & \texttt{PLAYER1\_STATE} & Contracted & \texttt{fighter\_visual\_state\_t} \\
+\texttt{0x10} & \texttt{PLAYER2\_X} & Contracted & Player 2 top-left \texttt{x} coordinate \\
+\texttt{0x14} & \texttt{PLAYER2\_Y} & Contracted & Player 2 top-left \texttt{y} coordinate \\
+\texttt{0x18} & \texttt{PLAYER2\_STATE} & Contracted & \texttt{fighter\_visual\_state\_t} \\
+\texttt{0x1C} & \texttt{PLAYER1\_HP} & Contracted & Player 1 remaining HP \\
+\texttt{0x20} & \texttt{PLAYER2\_HP} & Contracted & Player 2 remaining HP \\
+\texttt{0x24} & \texttt{ROUND\_TIMER} & Contracted & Remaining round time in seconds, produced by \texttt{fighter\_game\_round\_seconds\_remaining()} \\
+\texttt{0x28} & \texttt{WINNER} & Contracted & \texttt{fighter\_winner\_t} \\
+\texttt{0x2C} & \texttt{PLAYER1\_FACING} & Contracted & \texttt{1 = facing right}, \texttt{0 = facing left} \\
+\texttt{0x30} & \texttt{PLAYER2\_FACING} & Contracted & \texttt{1 = facing right}, \texttt{0 = facing left} \\
+\texttt{0x34} & \texttt{DEBUG\_FLAGS} & Contracted & \texttt{[7:0]} P1 last attack, \texttt{[15:8]} P2 last attack, \texttt{[19:16]} P1 attack phase, \texttt{[23:20]} P2 attack phase \\
+\texttt{0x38} & \texttt{PLAYER1\_ATTACK\_CMD} & Contracted & \texttt{fighter\_attack\_command\_t} \\
+\texttt{0x3C} & \texttt{PLAYER2\_ATTACK\_CMD} & Contracted & \texttt{fighter\_attack\_command\_t} \\
+\texttt{0x40} & \texttt{PLAYER1\_STATE\_FRAME} & Contracted & Number of frames spent in the current visual state \\
+\texttt{0x44} & \texttt{PLAYER2\_STATE\_FRAME} & Contracted & Number of frames spent in the current visual state \\
+\texttt{0x48} & \texttt{PLAYER1\_EVENT\_FLAGS} & Contracted & Per-frame pulse events such as \texttt{ATTACK\_START/HIT/BLOCK/LAND/KO} \\
+\texttt{0x4C} & \texttt{PLAYER2\_EVENT\_FLAGS} & Contracted & Same as above \\
+\texttt{0x50} & \texttt{PLAYER1\_COMBAT\_RESULT} & Contracted & \texttt{NONE/HIT/BLOCKED/TRADE/WHIFF} \\
+\texttt{0x54} & \texttt{PLAYER2\_COMBAT\_RESULT} & Contracted & Same as above \\
+\bottomrule
+\end{longtable}
+
+\section{Detailed Hardware Design}
+
+\subsection{Top-Level Hardware Structure}
+
+The board-level top module is \texttt{hw/soc\_system\_top.sv}. The project-relevant connections in the current build are:
+
+\begin{itemize}
+  \item The \texttt{soc\_system} instance provides the standard SoC skeleton for \texttt{HPS DDR3}, \texttt{USB}, \texttt{I2C}, \texttt{UART}, and related interfaces.
+  \item The \texttt{audio\_*} signals are exported from \texttt{soc\_system} and wired to the board-level \texttt{AUD\_*} pins.
+  \item \texttt{audio\_init\_done} and \texttt{audio\_init\_error} are mapped to \texttt{LEDR[0]} and \texttt{LEDR[1]}.
+  \item All \texttt{VGA} outputs are statically driven to zero in the current build, which confirms that project-specific video hardware is not yet connected.
+\end{itemize}
+
+\subsection{Internal Structure of \texttt{fighter\_audio\_wm8731}}
+
+\begin{lstlisting}[style=fighterstyle]
+Avalon-MM Slave
+  |
+  +--> control / status
+  +--> left FIFO
+  +--> right FIFO
+          |
+          v
+     sample serializer ------> AUD_DACDAT
+          |
+          +--> clock dividers ---> AUD_XCK / AUD_BCLK / AUD_DACLRCK / AUD_ADCLRCK
+
+I2C init FSM -----------------> FPGA_I2C_SCLK / FPGA_I2C_SDAT
+                                |
+                                v
+                              WM8731
+\end{lstlisting}
+
+\subsection{Audio Peripheral Timing and Protocol}
+
+\texttt{fighter\_audio\_wm8731} operates in a single 50 MHz clock domain. According to the design comments, the default derived clocks are:
+
+\begin{itemize}
+  \item \texttt{aud\_xck = clk / 4 = 12.5 MHz}
+  \item \texttt{aud\_bclk = clk / 16 = 3.125 MHz}
+  \item \texttt{lrck = clk / 1024 \approx 48.828 kHz}
+\end{itemize}
+
+The codec is configured for:
+
+\begin{itemize}
+  \item left-justified format
+  \item 16-bit samples
+  \item slave mode
+  \item DAC playback enabled
+\end{itemize}
+
+\subsection{Platform Designer Component Interface}
+
+\texttt{hw/fighter\_audio\_hw.tcl} already packages this module as a Qsys / Platform Designer component with the following interfaces:
+
+\begin{itemize}
+  \item \texttt{clock}
+  \item \texttt{reset}
+  \item \texttt{avalon\_slave\_0}
+  \item \texttt{audio} conduit
+\end{itemize}
+
+The \texttt{avalon\_slave\_0} interface includes:
+
+\begin{itemize}
+  \item \texttt{avs\_chipselect}
+  \item \texttt{avs\_read}
+  \item \texttt{avs\_write}
+  \item \texttt{avs\_address[1:0]}
+  \item \texttt{avs\_writedata[31:0]}
+  \item \texttt{avs\_readdata[31:0]}
+\end{itemize}
+
+\section{Software Interfaces}
+
+\subsection{Core Game Interface}
+
+\texttt{sw/include/fighter\_game.h} defines the full data model for game state.
+
+Key enumerations include:
+
+\begin{itemize}
+  \item \texttt{fighter\_game\_state\_t}: \texttt{MENU / PLAYING / GAME\_OVER}
+  \item \texttt{fighter\_visual\_state\_t}: \texttt{IDLE / WALK / JUMP / CROUCH / GUARD / ATTACK / HIT / BLOCK\_STUN / KO}
+  \item \texttt{fighter\_attack\_phase\_t}: \texttt{STARTUP / ACTIVE / HIT\_CONFIRM / BLOCK\_CONFIRM / RECOVERY}
+  \item \texttt{fighter\_winner\_t} and \texttt{fighter\_finish\_reason\_t}
+\end{itemize}
+
+Key structures include:
+
+\begin{itemize}
+  \item \texttt{fighter\_game\_config\_t}: the default configuration uses \texttt{640x480}, floor \texttt{y = 400}, player size \texttt{48x96}, walk speed 4, jump velocity -18, gravity 1, max HP 100, and round duration \texttt{99*60} frames.
+  \item \texttt{fighter\_player\_state\_t}: stores \texttt{x/y/vy/hp/facing}, attack phase, visual state, event flags, and per-state frame counters.
+  \item \texttt{fighter\_game\_t}: stores global state, frame counter, round timer, winner, finish reason, and the two player states.
+\end{itemize}
+
+Key functions include:
+
+\begin{itemize}
+  \item \texttt{fighter\_game\_init()}
+  \item \texttt{fighter\_game\_tick()}
+  \item \texttt{fighter\_game\_menu\_animation\_frame()}
+  \item \texttt{fighter\_game\_game\_over\_ready()}
+  \item \texttt{fighter\_game\_round\_seconds\_remaining()}
+\end{itemize}
+
+\subsection{Input Interface}
+
+\texttt{sw/include/fighter\_input.h} defines the input parsing layer.
+
+The default key mapping is:
+
+\begin{itemize}
+  \item \texttt{W}: jump
+  \item \texttt{A}: move left
+  \item \texttt{D}: move right
+  \item \texttt{S}: crouch
+  \item \texttt{J}: attack
+  \item \texttt{K}: guard
+  \item \texttt{L}: exit the current match
+\end{itemize}
+
+Attack combinations are mapped as follows:
+
+\begin{itemize}
+  \item \texttt{J}: normal attack
+  \item \texttt{A + J}: \texttt{FIREBALL}
+  \item \texttt{D + J}: \texttt{DRAGON\_PUNCH}
+  \item \texttt{W + J}: \texttt{JUMP\_ATTACK}
+  \item \texttt{W + D + J}: \texttt{FORWARD\_JUMP\_ATTACK}
+  \item \texttt{W + A + J}: \texttt{BACK\_JUMP\_ATTACK}
+  \item \texttt{S + J}: \texttt{SWEEP}
+\end{itemize}
+
+The interface is split into two layers:
+
+\begin{itemize}
+  \item \texttt{fighter\_menu\_parser\_*}: intended for explicit menu navigation, with \texttt{START/EXIT} item selection.
+  \item \texttt{fighter\_player\_parser\_*}: intended for in-match control, producing a normalized \texttt{fighter\_player\_result\_t}.
+\end{itemize}
+
+One important implementation note is that the current \texttt{phase1\_demo} primarily uses \texttt{fighter\_player\_parser\_*} to drive the game loop. The dedicated menu parser API exists, but it has not yet been fully integrated into the main demo path.
+
+\subsection{Rendering Interface}
+
+\texttt{sw/include/fighter\_renderer.h} defines the current video output abstraction.
+
+\begin{itemize}
+  \item Preferred backend: \texttt{framebuffer}
+  \item Fallback backend: \texttt{console}
+  \item Main entry points: \texttt{fighter\_renderer\_init()}, \texttt{fighter\_renderer\_draw()}, and \texttt{fighter\_renderer\_close()}
+\end{itemize}
+
+The renderer currently:
+
+\begin{itemize}
+  \item loads and scales two menu-frame images in the menu state
+  \item draws the background, HP bars, timer, simplified player graphics, and debug overlays during gameplay
+  \item falls back to console debugging output if \texttt{/dev/fb0} cannot be opened
+\end{itemize}
+
+\subsection{Audio Interface}
+
+\texttt{sw/include/fighter\_audio.h} defines the audio command queue and backend abstraction.
+
+The currently used audio tracks are:
+
+\begin{itemize}
+  \item \texttt{MENU\_BGM}
+  \item \texttt{MENU\_CONFIRM}
+  \item \texttt{GAME\_OVER}
+\end{itemize}
+
+The supported command types are:
+
+\begin{itemize}
+  \item \texttt{PLAY\_ONCE}
+  \item \texttt{START\_LOOP}
+  \item \texttt{STOP\_LOOP}
+\end{itemize}
+
+Backend selection behaves as follows:
+
+\begin{itemize}
+  \item audio is disabled by default
+  \item audio initialization is attempted only when running \texttt{phase1\_demo --audio}
+  \item backend selection order is \texttt{WM8731/MMIO -> command backend fallback}
+\end{itemize}
+
+\subsection{USB Keyboard Capture Interface}
+
+\texttt{sw/include/usb\_hid\_keyboard.h} implements device enumeration and polling through \texttt{libusb}.
+
+Key properties include:
+
+\begin{itemize}
+  \item support for up to two devices
+  \item acceptance of only \texttt{HID boot keyboard} devices
+  \item interrupt IN transfers of 8-byte keyboard reports
+  \item automatic zeroing of a device report and error logging when a keyboard is disconnected
+\end{itemize}
+
+\section{Verilog Module Interfaces}
+
+The original template expected a ``top-level fighting peripheral + VGA submodule'' description. However, the actual project-specific Verilog module currently present in the repository is the audio peripheral, so this section documents the implemented modules instead.
+
+\subsection{\texttt{fighter\_audio\_wm8731}}
+
+The module definition is in \texttt{hw/fighter\_audio.sv}.
+
+Key parameters:
+
+\begin{itemize}
+  \item \texttt{FIFO\_DEPTH = 128}
+  \item \texttt{CLK\_HZ = 50000000}
+  \item \texttt{I2C\_RATE\_HZ = 100000}
+  \item \texttt{XCK\_DIV = 4}
+  \item \texttt{BCLK\_DIV = 16}
+  \item \texttt{I2C\_DEVICE\_ADDR = 7'h1A}
+\end{itemize}
+
+Key ports:
+
+\begin{itemize}
+  \item clock and reset: \texttt{clk}, \texttt{reset\_n}
+  \item Avalon-MM: \texttt{avs\_chipselect}, \texttt{avs\_read}, \texttt{avs\_write}, \texttt{avs\_address}, \texttt{avs\_writedata}, \texttt{avs\_readdata}
+  \item audio data signals: \texttt{aud\_xck}, \texttt{aud\_bclk}, \texttt{aud\_daclrck}, \texttt{aud\_adclrck}, \texttt{aud\_dacdat}, \texttt{aud\_adcdat}
+  \item codec configuration lines: \texttt{fpga\_i2c\_sclk}, \texttt{fpga\_i2c\_sdat}
+  \item status outputs: \texttt{codec\_init\_done}, \texttt{codec\_init\_error}
+\end{itemize}
+
+\subsection{\texttt{soc\_system\_top}}
+
+The board-level wrapper is \texttt{hw/soc\_system\_top.sv}. From the project perspective, its responsibilities are:
+
+\begin{itemize}
+  \item instantiate \texttt{soc\_system}
+  \item connect HPS USB, DDR3, I2C, UART, and other standard board interfaces
+  \item route the \texttt{audio\_*} conduit to the \texttt{AUD\_*} pins
+  \item expose \texttt{audio\_init\_done/error}
+  \item statically disable unused VGA outputs in the current build
+\end{itemize}
+
+\subsection{Modules Still Missing}
+
+The following modules are clearly implied by the target architecture but are not present in the current branch:
+
+\begin{itemize}
+  \item \texttt{vga\_controller}
+  \item \texttt{sprite\_engine}
+  \item \texttt{ui\_overlay}
+  \item \texttt{fighter\_peripheral} or an equivalent VGA/MMIO rendering peripheral
+\end{itemize}
+
+This is the main reason the VGA-related sections of the original template must be rewritten as planned architecture rather than documented as current implementation.
+
+\section{Implementation Details and Testing}
+
+\subsection{Main Loop and Execution Modes}
+
+\texttt{sw/main\_phase1\_demo.c} is the main demo program. It supports two input modes:
+
+\begin{itemize}
+  \item \texttt{--script smoke|ko}
+  \item \texttt{--usb}
+\end{itemize}
+
+At runtime, each frame executes the following sequence:
+
+\begin{enumerate}
+  \item collect or synthesize input reports
+  \item parse them into \texttt{fighter\_player\_result\_t}
+  \item execute \texttt{fighter\_game\_tick()}
+  \item execute \texttt{fighter\_audio\_process\_commands()}
+  \item execute \texttt{fighter\_renderer\_draw()}
+  \item throttle to approximately 60 FPS using \texttt{clock\_gettime()} and \texttt{nanosleep()}
+\end{enumerate}
+
+\subsection{Game Rules Already Implemented}
+
+The current branch already supports:
+
+\begin{itemize}
+  \item left/right movement, jumping, crouching, and guarding for both players
+  \item attack startup, active, hit-confirm, block-confirm, and recovery phases
+  \item normal attack, fireball, dragon punch, jump attack, forward jump attack, back jump attack, and sweep
+  \item automatic facing updates
+  \item overlap resolution between players
+  \item hit damage, guard chip damage, hit stun, and block stun
+  \item \texttt{KO / DOUBLE\_KO / TIME\_OUT / EXIT}
+  \item \texttt{MENU / PLAYING / GAME\_OVER}
+\end{itemize}
+
+\subsection{Automated Test Coverage}
+
+\texttt{sw/tests/test\_phase1.c} covers the following critical paths:
+
+\begin{itemize}
+  \item entering the menu and starting a round
+  \item exiting a match back to the menu
+  \item KO transition into \texttt{GAME\_OVER}
+  \item restarting after the game-over animation gate
+  \item timeout draw resolution and MMIO encoding
+  \item hit-confirm state-machine behavior
+  \item block stun behavior and MMIO fields
+  \item facing reversal after an airborne cross-up
+  \item grounded overlap resolution
+\end{itemize}
+
+\subsection{Build Outputs}
+
+\texttt{sw/Makefile} currently builds:
+
+\begin{itemize}
+  \item \texttt{phase1\_demo}
+  \item \texttt{phase1\_test}
+  \item \texttt{audio\_demo}
+  \item \texttt{audio\_probe}
+  \item \texttt{input\_demo}, only when \texttt{libusb-1.0} is installed
+\end{itemize}
+
+Recommended validation commands:
+
+\begin{lstlisting}[style=fighterstyle]
+cd sw
+make
+./phase1_test
+./phase1_demo --script smoke --console
+./phase1_demo --script ko --console
+./audio_probe
+\end{lstlisting}
+
+\subsection{Current Risks and Limitations}
+
+\begin{itemize}
+  \item There is currently no FPGA VGA fighting renderer, so the VGA hardware diagrams from the original template can only be treated as future work.
+  \item \texttt{phase1\_demo} does not yet integrate the full menu-state machine. The current menu behavior is effectively ``any player, any key starts the match.''
+  \item Audio is disabled by default. Only an explicit \texttt{--audio} flag triggers an attempt to use \texttt{WM8731/MMIO} or the command-line player fallback.
+  \item There is no Linux kernel driver yet. Both display and audio paths currently use direct user-space access to device nodes or physical addresses, which is convenient for debugging but not yet highly engineered.
+\end{itemize}
+
+\section{Conclusion and Future Work}
+
+Given the actual state of the repository, the project has already reached two important milestones: a working \texttt{Phase 1} fighting game prototype and a standalone bring-up path for the \texttt{WM8731} audio hardware chain. The most natural next step is not to rewrite the HPS-side game logic, but to connect the already fixed \texttt{fighter\_mmio} contract to a real FPGA VGA rendering peripheral. That would gradually move rendering from the current software path to the intended \texttt{HPS logic + FPGA video} architecture.
+
+The most direct incremental roadmap is:
+
+\begin{enumerate}
+  \item keep \texttt{fighter\_game.c} and \texttt{fighter\_mmio\_encode()} unchanged
+  \item add a VGA Avalon-MM slave that exactly matches \texttt{fighter\_mmio.h}
+  \item implement timing generation, background, player graphics, and HUD output on the FPGA side
+  \item finally decide whether to add a Linux driver or continue using a user-space \texttt{mmap}-based approach
+\end{enumerate}
+
+\section{Reference Files}
+
+\begin{itemize}
+  \item \texttt{sw/main\_phase1\_demo.c}
+  \item \texttt{sw/game/fighter\_game.c}
+  \item \texttt{sw/render\_if/fighter\_mmio.c}
+  \item \texttt{sw/render\_if/fighter\_renderer.c}
+  \item \texttt{sw/input/fighter\_input.c}
+  \item \texttt{sw/input/usb\_hid\_keyboard.c}
+  \item \texttt{sw/audio/fighter\_audio.c}
+  \item \texttt{hw/fighter\_audio.sv}
+  \item \texttt{hw/fighter\_audio\_hw.tcl}
+  \item \texttt{hw/soc\_system\_top.sv}
+\end{itemize}
+
+\end{document}
