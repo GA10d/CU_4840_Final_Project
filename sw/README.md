@@ -84,6 +84,7 @@ make
 ./audio_demo
 ./phase1_demo
 ./phase1_test
+./title_alsa_demo
 ```
 
 如果系统里有 `libusb`，还会额外生成：
@@ -101,23 +102,44 @@ make
 脚本方式验证 Phase 1：
 
 ```bash
+./audio_demo --track menu_bgm --seconds 2
 ./phase1_test
 ./phase1_demo --script smoke --console
 ./phase1_demo --script ko --console
 ```
 
-当前分支已经移除了旧的音频运行时和 MMIO 探测逻辑：
+当前分支已经恢复了一条最小音频 bring-up 路径：
 
-- `audio_demo` 现在只会提示旧音频路径已删除
-- `audio_probe` 现在只会提示旧 MMIO 探测已删除
-- 游戏状态机改为通过 `fighter_game_consume_audio_hooks()` 暴露音频触发口
+- `audio_probe`
+  - 直接验证 `0xFF203040` 的 MMIO 外设是否可见
+- `audio_demo`
+  - 最小 `Title.wav` / `Credit.wav` / `Game Over.wav` 播放器
+  - 优先走 `WM8731/MMIO`
+  - 失败时回退到 `aplay / ffplay / afplay`
+- `title_alsa_demo`
+  - 按 `sound/` 里的参考方案走 Linux ALSA 声卡链路
+  - 自动尝试释放 HPS-to-FPGA bridge reset
+  - 自动探测 `DE1SOC-WM8731` / `WM8731` 声卡并播放 `Title.wav`
+- `phase1_demo --audio`
+  - 使用 `fighter_game_consume_audio_hooks()` 接回菜单 BGM / SFX
 
-如果你后面要重做音频，可以从这些 hook 接入。
+常用音频命令：
 
-旧音频 bring-up 文档暂时保留做参考：
+```bash
+./audio_probe
+./audio_demo --track menu_bgm --loop --forever
+./audio_demo --track menu_bgm --command-only
+sudo ./title_alsa_demo
+./title_alsa_demo --list-cards
+sudo ./title_alsa_demo --device plughw:0,0
+./phase1_demo --audio --console
+```
+
+相关文档：
 
 - [audio_bringup_guide.md](/Users/guozhewen/Documents/GitHub/CU_4840_Final_Project/docs/audio_bringup_guide.md)
 - [sound_alsa_title_runbook.md](/Users/guozhewen/Documents/GitHub/CU_4840_Final_Project/docs/sound_alsa_title_runbook.md)
+- [title_wav_fpga_demo_runbook.md](/Users/guozhewen/Documents/GitHub/CU_4840_Final_Project/docs/title_wav_fpga_demo_runbook.md)
 
 ## Integration Suggestion
 
