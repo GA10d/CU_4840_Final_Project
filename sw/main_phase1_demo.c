@@ -1,4 +1,3 @@
-#include "fighter_audio.h"
 #include "fighter_game.h"
 #include "fighter_input.h"
 #include "fighter_renderer.h"
@@ -112,8 +111,7 @@ static const char *fighter_script_name(fighter_script_kind_t kind) {
 }
 
 static void fighter_print_usage(const char *argv0) {
-  printf("usage: %s [--usb] [--script smoke|ko] [--console] [--audio] "
-         "[--frames N]\n",
+  printf("usage: %s [--usb] [--script smoke|ko] [--console] [--frames N]\n",
          argv0);
 }
 
@@ -121,11 +119,8 @@ int main(int argc, char **argv) {
   fighter_game_t game;
   fighter_renderer_t renderer;
   fighter_renderer_options_t renderer_options;
-  fighter_audio_context_t audio_context;
-  fighter_audio_options_t audio_options;
   fighter_player_parser_t parsers[FIGHTER_PLAYER_COUNT];
   fighter_player_result_t inputs[FIGHTER_PLAYER_COUNT];
-  fighter_audio_command_list_t audio_commands;
   fighter_input_mode_t input_mode;
   fighter_script_kind_t script_kind;
   int max_frames;
@@ -143,7 +138,6 @@ int main(int argc, char **argv) {
   realtime = 0;
 
   fighter_renderer_options_init(&renderer_options);
-  fighter_audio_options_init(&audio_options);
 
   for (i = 1; i < argc; ++i) {
     if (strcmp(argv[i], "--usb") == 0) {
@@ -165,8 +159,6 @@ int main(int argc, char **argv) {
       }
     } else if (strcmp(argv[i], "--console") == 0) {
       renderer_options.prefer_framebuffer = 0;
-    } else if (strcmp(argv[i], "--audio") == 0) {
-      audio_options.enable_command_audio = 1;
     } else if (strcmp(argv[i], "--frames") == 0 && i + 1 < argc) {
       ++i;
       max_frames = atoi(argv[i]);
@@ -187,7 +179,6 @@ int main(int argc, char **argv) {
 
   fighter_game_init(&game, NULL);
   (void)fighter_renderer_init(&renderer, &renderer_options);
-  (void)fighter_audio_init(&audio_context, &audio_options);
   for (i = 0; i < FIGHTER_PLAYER_COUNT; ++i) {
     fighter_player_parser_init(&parsers[i]);
   }
@@ -209,7 +200,6 @@ int main(int argc, char **argv) {
             "this build was compiled without libusb support; use --script or "
             "install libusb on the target board\n");
     fighter_renderer_close(&renderer);
-    fighter_audio_close(&audio_context);
     return 1;
   }
 #endif
@@ -218,7 +208,6 @@ int main(int argc, char **argv) {
   printf("  input mode: %s\n",
          input_mode == FIGHTER_INPUT_MODE_USB ? "usb" : fighter_script_name(script_kind));
   printf("  renderer  : %s\n", fighter_renderer_backend_name(&renderer));
-  printf("  audio     : %s\n", fighter_audio_backend_name(&audio_context));
 
   frame_index = 0;
   while (g_running && (max_frames < 0 || frame_index < max_frames)) {
@@ -247,8 +236,8 @@ int main(int argc, char **argv) {
       fighter_player_parser_update(&parsers[i], &reports[i], &inputs[i]);
     }
 
-    fighter_game_tick(&game, inputs, &audio_commands);
-    fighter_audio_process_commands(&audio_context, &audio_commands);
+    fighter_game_tick(&game, inputs);
+    (void)fighter_game_consume_audio_hooks(&game);
     fighter_renderer_draw(&renderer, &game);
 
     if (realtime ||
@@ -264,7 +253,6 @@ int main(int argc, char **argv) {
     usb_hid_keyboard_manager_close(&keyboard_manager);
   }
 #endif
-  fighter_audio_close(&audio_context);
   fighter_renderer_close(&renderer);
   return 0;
 }

@@ -41,6 +41,7 @@ typedef enum {
 
 typedef struct {
   int enable_command_audio;
+  int force_command_backend;
 } fighter_audio_options_t;
 
 typedef struct {

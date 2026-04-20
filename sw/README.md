@@ -101,15 +101,23 @@ make
 脚本方式验证 Phase 1：
 
 ```bash
-./audio_demo --track menu_confirm --seconds 2
 ./phase1_test
 ./phase1_demo --script smoke --console
 ./phase1_demo --script ko --console
 ```
 
-如果要跑板载音频 bring-up，先看：
+当前分支已经移除了旧的音频运行时和 MMIO 探测逻辑：
+
+- `audio_demo` 现在只会提示旧音频路径已删除
+- `audio_probe` 现在只会提示旧 MMIO 探测已删除
+- 游戏状态机改为通过 `fighter_game_consume_audio_hooks()` 暴露音频触发口
+
+如果你后面要重做音频，可以从这些 hook 接入。
+
+旧音频 bring-up 文档暂时保留做参考：
 
 - [audio_bringup_guide.md](/Users/guozhewen/Documents/GitHub/CU_4840_Final_Project/docs/audio_bringup_guide.md)
+- [sound_alsa_title_runbook.md](/Users/guozhewen/Documents/GitHub/CU_4840_Final_Project/docs/sound_alsa_title_runbook.md)
 
 ## Integration Suggestion
 

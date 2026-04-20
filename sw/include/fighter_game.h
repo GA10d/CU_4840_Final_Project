@@ -3,7 +3,6 @@
 
 #include <stdint.h>
 
-#include "fighter_audio.h"
 #include "fighter_input.h"
 
 #ifdef __cplusplus
@@ -71,6 +70,13 @@ enum {
   FIGHTER_PLAYER_EVENT_KO = 1 << 4
 };
 
+enum {
+  FIGHTER_GAME_AUDIO_HOOK_NONE = 0,
+  FIGHTER_GAME_AUDIO_HOOK_ENTER_MENU = 1 << 0,
+  FIGHTER_GAME_AUDIO_HOOK_START_ROUND = 1 << 1,
+  FIGHTER_GAME_AUDIO_HOOK_ENTER_GAME_OVER = 1 << 2
+};
+
 typedef struct {
   int screen_width;
   int screen_height;
@@ -116,15 +122,17 @@ typedef struct {
   uint32_t round_timer_frames;
   fighter_winner_t winner;
   fighter_finish_reason_t finish_reason;
-  int menu_bgm_active;
+  uint32_t audio_hook_flags;
   fighter_player_state_t players[FIGHTER_PLAYER_COUNT];
 } fighter_game_t;
 
 void fighter_game_config_default(fighter_game_config_t *config);
 void fighter_game_init(fighter_game_t *game, const fighter_game_config_t *config);
 void fighter_game_tick(fighter_game_t *game,
-                       const fighter_player_result_t inputs[FIGHTER_PLAYER_COUNT],
-                       fighter_audio_command_list_t *audio_commands);
+                       const fighter_player_result_t inputs[FIGHTER_PLAYER_COUNT]);
+/* Hooks accumulate until consumed and are intended to be checked once per frame. */
+uint32_t fighter_game_peek_audio_hooks(const fighter_game_t *game);
+uint32_t fighter_game_consume_audio_hooks(fighter_game_t *game);
 
 int fighter_game_menu_animation_frame(const fighter_game_t *game);
 int fighter_game_game_over_ready(const fighter_game_t *game);
