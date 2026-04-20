@@ -1,0 +1,77 @@
+
+State Machine - |DE1_SOC_Linux_Audio|i2s_shift_in:i2s_shift_in44|first_bclk_falling_after_lrclk_falling_r
+Name first_bclk_falling_after_lrclk_falling_r.11 first_bclk_falling_after_lrclk_falling_r.10 first_bclk_falling_after_lrclk_falling_r.01 first_bclk_falling_after_lrclk_falling_r.00 
+first_bclk_falling_after_lrclk_falling_r.00 0 0 0 0 
+first_bclk_falling_after_lrclk_falling_r.01 0 0 1 1 
+first_bclk_falling_after_lrclk_falling_r.10 0 1 0 1 
+first_bclk_falling_after_lrclk_falling_r.11 1 0 0 1 
+
+State Machine - |DE1_SOC_Linux_Audio|i2s_shift_in:i2s_shift_in44|first_bclk_falling_after_lrclk_rising_r
+Name first_bclk_falling_after_lrclk_rising_r.11 first_bclk_falling_after_lrclk_rising_r.10 first_bclk_falling_after_lrclk_rising_r.01 first_bclk_falling_after_lrclk_rising_r.00 
+first_bclk_falling_after_lrclk_rising_r.00 0 0 0 0 
+first_bclk_falling_after_lrclk_rising_r.01 0 0 1 1 
+first_bclk_falling_after_lrclk_rising_r.10 0 1 0 1 
+first_bclk_falling_after_lrclk_rising_r.11 1 0 0 1 
+
+State Machine - |DE1_SOC_Linux_Audio|i2s_shift_in:i2s_shift_in48|first_bclk_falling_after_lrclk_falling_r
+Name first_bclk_falling_after_lrclk_falling_r.11 first_bclk_falling_after_lrclk_falling_r.10 first_bclk_falling_after_lrclk_falling_r.01 first_bclk_falling_after_lrclk_falling_r.00 
+first_bclk_falling_after_lrclk_falling_r.00 0 0 0 0 
+first_bclk_falling_after_lrclk_falling_r.01 0 0 1 1 
+first_bclk_falling_after_lrclk_falling_r.10 0 1 0 1 
+first_bclk_falling_after_lrclk_falling_r.11 1 0 0 1 
+
+State Machine - |DE1_SOC_Linux_Audio|i2s_shift_in:i2s_shift_in48|first_bclk_falling_after_lrclk_rising_r
+Name first_bclk_falling_after_lrclk_rising_r.11 first_bclk_falling_after_lrclk_rising_r.10 first_bclk_falling_after_lrclk_rising_r.01 first_bclk_falling_after_lrclk_rising_r.00 
+first_bclk_falling_after_lrclk_rising_r.00 0 0 0 0 
+first_bclk_falling_after_lrclk_rising_r.01 0 0 1 1 
+first_bclk_falling_after_lrclk_rising_r.10 0 1 0 1 
+first_bclk_falling_after_lrclk_rising_r.11 1 0 0 1 
+
+State Machine - |DE1_SOC_Linux_Audio|i2s_shift_out:i2s_shift_out44|first_bclk_falling_after_lrclk_falling_r
+Name first_bclk_falling_after_lrclk_falling_r.11 first_bclk_falling_after_lrclk_falling_r.10 first_bclk_falling_after_lrclk_falling_r.01 first_bclk_falling_after_lrclk_falling_r.00 
+first_bclk_falling_after_lrclk_falling_r.00 0 0 0 0 
+first_bclk_falling_after_lrclk_falling_r.01 0 0 1 1 
+first_bclk_falling_after_lrclk_falling_r.10 0 1 0 1 
+first_bclk_falling_after_lrclk_falling_r.11 1 0 0 1 
+
+State Machine - |DE1_SOC_Linux_Audio|i2s_shift_out:i2s_shift_out44|first_bclk_falling_after_lrclk_rising_r
+Name first_bclk_falling_after_lrclk_rising_r.11 first_bclk_falling_after_lrclk_rising_r.10 first_bclk_falling_after_lrclk_rising_r.01 first_bclk_falling_after_lrclk_rising_r.00 
+first_bclk_falling_after_lrclk_rising_r.00 0 0 0 0 
+first_bclk_falling_after_lrclk_rising_r.01 0 0 1 1 
+first_bclk_falling_after_lrclk_rising_r.10 0 1 0 1 
+first_bclk_falling_after_lrclk_rising_r.11 1 0 0 1 
+
+State Machine - |DE1_SOC_Linux_Audio|i2s_shift_out:i2s_shift_out48|first_bclk_falling_after_lrclk_falling_r
+Name first_bclk_falling_after_lrclk_falling_r.11 first_bclk_falling_after_lrclk_falling_r.10 first_bclk_falling_after_lrclk_falling_r.01 first_bclk_falling_after_lrclk_falling_r.00 
+first_bclk_falling_after_lrclk_falling_r.00 0 0 0 0 
+first_bclk_falling_after_lrclk_falling_r.01 0 0 1 1 
+first_bclk_falling_after_lrclk_falling_r.10 0 1 0 1 
+first_bclk_falling_after_lrclk_falling_r.11 1 0 0 1 
+
+State Machine - |DE1_SOC_Linux_Audio|i2s_shift_out:i2s_shift_out48|first_bclk_falling_after_lrclk_rising_r
+Name first_bclk_falling_after_lrclk_rising_r.11 first_bclk_falling_after_lrclk_rising_r.10 first_bclk_falling_after_lrclk_rising_r.01 first_bclk_falling_after_lrclk_rising_r.00 
+first_bclk_falling_after_lrclk_rising_r.00 0 0 0 0 
+first_bclk_falling_after_lrclk_rising_r.01 0 0 1 1 
+first_bclk_falling_after_lrclk_rising_r.10 0 1 0 1 
+first_bclk_falling_after_lrclk_rising_r.11 1 0 0 1 
+
+State Machine - |DE1_SOC_Linux_Audio|soc_system:u0|soc_system_mm_interconnect_0:mm_interconnect_0|altera_merlin_burst_adapter:sysid_qsys_0_control_slave_burst_adapter|altera_merlin_burst_adapter_13_1:altera_merlin_burst_adapter_13_1.burst_adapter|state
+Name state.ST_IDLE state.ST_UNCOMP_WR_SUBBURST state.ST_UNCOMP_TRANS state.ST_COMP_TRANS 
+state.ST_IDLE 0 0 0 0 
+state.ST_COMP_TRANS 1 0 0 1 
+state.ST_UNCOMP_TRANS 1 0 1 0 
+state.ST_UNCOMP_WR_SUBBURST 1 1 0 0 
+
+State Machine - |DE1_SOC_Linux_Audio|soc_system:u0|soc_system_mm_interconnect_0:mm_interconnect_0|altera_merlin_burst_adapter:i2s_clkctrl_apb_0_apb_slave_burst_adapter|altera_merlin_burst_adapter_13_1:altera_merlin_burst_adapter_13_1.burst_adapter|state
+Name state.ST_IDLE state.ST_UNCOMP_WR_SUBBURST state.ST_UNCOMP_TRANS state.ST_COMP_TRANS 
+state.ST_IDLE 0 0 0 0 
+state.ST_COMP_TRANS 1 0 0 1 
+state.ST_UNCOMP_TRANS 1 0 1 0 
+state.ST_UNCOMP_WR_SUBBURST 1 1 0 0 
+
+State Machine - |DE1_SOC_Linux_Audio|soc_system:u0|soc_system_mm_interconnect_0:mm_interconnect_0|altera_merlin_burst_adapter:i2s_output_apb_0_apb_slave_burst_adapter|altera_merlin_burst_adapter_13_1:altera_merlin_burst_adapter_13_1.burst_adapter|state
+Name state.ST_IDLE state.ST_UNCOMP_WR_SUBBURST state.ST_UNCOMP_TRANS state.ST_COMP_TRANS 
+state.ST_IDLE 0 0 0 0 
+state.ST_COMP_TRANS 1 0 0 1 
+state.ST_UNCOMP_TRANS 1 0 1 0 
+state.ST_UNCOMP_WR_SUBBURST 1 1 0 0 
