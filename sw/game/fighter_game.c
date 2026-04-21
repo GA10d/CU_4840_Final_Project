@@ -120,6 +120,7 @@ static void fighter_player_interrupt_attack(fighter_player_state_t *player) {
 
   player->attack_phase = FIGHTER_ATTACK_PHASE_NONE;
   player->attack_phase_frames = 0;
+  player->attack_has_connected = 0;
   fighter_player_sync_attack_visual_frames(player);
 }
 
@@ -155,6 +156,7 @@ static void fighter_player_begin_attack(fighter_player_state_t *player,
   command = fighter_normalize_attack_command(command);
   profile = fighter_attack_profile(command);
   player->last_attack = command;
+  player->attack_has_connected = 0;
   player->combat_result = FIGHTER_COMBAT_RESULT_NONE;
   player->event_flags |= FIGHTER_PLAYER_EVENT_ATTACK_START;
   fighter_player_enter_attack_phase(player, FIGHTER_ATTACK_PHASE_STARTUP,
@@ -227,9 +229,10 @@ static void fighter_player_enter_block_stun(fighter_player_state_t *player,
   player->event_flags |= FIGHTER_PLAYER_EVENT_BLOCK;
 }
 
-static int fighter_player_can_guard(const fighter_game_t *game,
-                                    const fighter_player_state_t *player,
-                                    const fighter_player_result_t *input) {
+static int fighter_player_can_enter_guard_state(
+    const fighter_game_t *game,
+    const fighter_player_state_t *player,
+    const fighter_player_result_t *input) {
   if (!game || !player || !input) {
     return 0;
   }
@@ -243,6 +246,20 @@ static int fighter_player_can_guard(const fighter_game_t *game,
     return 0;
   }
   return !fighter_player_is_airborne(game, player);
+}
+
+static int fighter_player_can_crouch_guard(
+    const fighter_game_t *game,
+    const fighter_player_state_t *player,
+    const fighter_player_result_t *input) {
+  return fighter_player_can_enter_guard_state(game, player, input) &&
+         input->crouch_held;
+}
+
+static int fighter_player_can_guard(const fighter_game_t *game,
+                                    const fighter_player_state_t *player,
+                                    const fighter_player_result_t *input) {
+  return fighter_player_can_enter_guard_state(game, player, input);
 }
 
 static int fighter_player_controls_locked(const fighter_player_state_t *player) {
@@ -448,6 +465,9 @@ static fighter_visual_state_t fighter_game_choose_visual_state(
   if (fighter_player_is_airborne(game, player)) {
     return FIGHTER_VISUAL_STATE_JUMP;
   }
+  if (input && fighter_player_can_crouch_guard(game, player, input)) {
+    return FIGHTER_VISUAL_STATE_CROUCH_GUARD;
+  }
   if (input && fighter_player_can_guard(game, player, input)) {
     return FIGHTER_VISUAL_STATE_GUARD;
   }
@@ -500,7 +520,8 @@ static fighter_combat_result_t fighter_game_evaluate_contact(
   target = &game->players[1 - attacker_index];
   target_input = &inputs[1 - attacker_index];
   if (attacker->hp <= 0 || target->hp <= 0 ||
-      attacker->attack_phase != FIGHTER_ATTACK_PHASE_ACTIVE) {
+      attacker->attack_phase != FIGHTER_ATTACK_PHASE_ACTIVE ||
+      attacker->attack_has_connected) {
     return FIGHTER_COMBAT_RESULT_NONE;
   }
 
@@ -546,6 +567,8 @@ static void fighter_game_apply_trade(fighter_game_t *game) {
     p2->hp = 0;
   }
 
+  p1->attack_has_connected = 1;
+  p2->attack_has_connected = 1;
   fighter_player_interrupt_attack(p1);
   fighter_player_interrupt_attack(p2);
   p1->combat_result = FIGHTER_COMBAT_RESULT_TRADE;
@@ -579,6 +602,7 @@ static void fighter_game_apply_hit(fighter_game_t *game, int attacker_index) {
     target->hp = 0;
   }
 
+  attacker->attack_has_connected = 1;
   fighter_player_enter_attack_phase(attacker, FIGHTER_ATTACK_PHASE_HIT_CONFIRM,
                                     profile.hit_confirm_frames);
   attacker->combat_result = FIGHTER_COMBAT_RESULT_HIT;
@@ -613,6 +637,7 @@ static void fighter_game_apply_block(fighter_game_t *game, int attacker_index) {
     target->hp = 0;
   }
 
+  attacker->attack_has_connected = 1;
   fighter_player_enter_attack_phase(attacker,
                                     FIGHTER_ATTACK_PHASE_BLOCK_CONFIRM,
                                     profile.block_confirm_frames);
@@ -713,7 +738,9 @@ static void fighter_game_handle_player(fighter_game_t *game,
   int ground_y;
   int max_x;
   int was_airborne;
+  int is_airborne;
   int controls_locked;
+  fighter_attack_phase_t previous_attack_phase;
 
   player = &game->players[player_index];
   input = &inputs[player_index];
@@ -733,7 +760,13 @@ static void fighter_game_handle_player(fighter_game_t *game,
     player->block_stun_frames--;
   }
 
+  previous_attack_phase = player->attack_phase;
   fighter_player_tick_attack_phase(player);
+  if (previous_attack_phase != FIGHTER_ATTACK_PHASE_ACTIVE &&
+      player->attack_phase == FIGHTER_ATTACK_PHASE_ACTIVE &&
+      player->last_attack == FIGHTER_ATTACK_DRAGON_PUNCH && player->vy >= 0) {
+    player->vy = game->config.dragon_punch_lift_velocity;
+  }
   controls_locked = fighter_player_controls_locked(player);
 
   if (player->hp > 0 && !controls_locked) {
@@ -741,7 +774,8 @@ static void fighter_game_handle_player(fighter_game_t *game,
       player->vy = game->config.jump_velocity;
     }
 
-    if (!input->guard_held && !input->crouch_held) {
+    is_airborne = fighter_player_is_airborne(game, player);
+    if (!is_airborne && !input->guard_held && !input->crouch_held) {
       if (input->move_left && !input->move_right) {
         player->vx = -game->config.walk_speed;
       } else if (input->move_right && !input->move_left) {
@@ -750,8 +784,24 @@ static void fighter_game_handle_player(fighter_game_t *game,
     }
 
     if (input->attack_pressed && player->attack_cooldown_frames == 0) {
-      player->attack_cooldown_frames = game->config.attack_cooldown_frames;
-      fighter_player_begin_attack(player, input->attack_command);
+      fighter_attack_command_t command = input->attack_command;
+      int allow_attack = 0;
+
+      if (was_airborne) {
+        allow_attack = input->jump_held && command == FIGHTER_ATTACK_JUMP_ATTACK;
+        if (allow_attack) {
+          command = FIGHTER_ATTACK_JUMP_ATTACK;
+        }
+      } else if (!is_airborne) {
+        allow_attack = command != FIGHTER_ATTACK_JUMP_ATTACK &&
+                       command != FIGHTER_ATTACK_FORWARD_JUMP_ATTACK &&
+                       command != FIGHTER_ATTACK_BACK_JUMP_ATTACK;
+      }
+
+      if (allow_attack) {
+        player->attack_cooldown_frames = game->config.attack_cooldown_frames;
+        fighter_player_begin_attack(player, command);
+      }
     }
   }
 
@@ -867,14 +917,15 @@ void fighter_game_config_default(fighter_game_config_t *config) {
   config->floor_y = 400;
   config->player_width = 48;
   config->player_height = 96;
-  config->walk_speed = 4;
-  config->jump_velocity = -18;
+  config->walk_speed = 3;
+  config->jump_velocity = -14;
   config->gravity = 1;
   config->max_hp = 100;
   config->round_duration_frames = 99 * 60;
   config->menu_anim_period_frames = 20;
   config->game_over_anim_frames = 120;
   config->attack_cooldown_frames = 14;
+  config->dragon_punch_lift_velocity = -6;
   config->attack_visual_frames = 6;
   config->hurt_visual_frames = 8;
 }

@@ -399,8 +399,6 @@ static int fighter_load_clip_from_directory(const char *dir_path,
   }
 
   fighter_path_list_free(&paths);
-  printf("loaded clip: %s, frame_count=%d, ticks_per_frame=%d, loop=%d\n",
-       dir_path, clip.frame_count, clip.ticks_per_frame, clip.loop);
 
   *out_clip = clip;
   return 0;
@@ -451,7 +449,7 @@ static int fighter_load_character_animation_set(
 
   if (fighter_try_load_clip(base_root, "idle", 10, 1, &set->idle) != 0) return -1;
   if (fighter_try_load_clip(base_root, "walk", 6, 1, &set->walk) != 0) return -1;
-  if (fighter_try_load_clip(base_root, "crouch", 10, 1, &set->crouch) != 0) return -1;
+  if (fighter_try_load_clip(base_root, "crouch", 10, 0, &set->crouch) != 0) return -1;
   if (fighter_try_load_clip(base_root, "jump", 8, 1, &set->jump) != 0) return -1;
   if (fighter_try_load_clip(base_root, "guard", 8, 1, &set->guard) != 0) return -1;
 
@@ -498,13 +496,13 @@ static int fighter_load_character_animation_set(
       return -1;
     }
   }
-if (fighter_try_load_clip(base_root, "extras/victory_1", 6, 1, &set->victory) != 0) {
-  if (fighter_try_load_clip(base_root, "extras/victory_2", 6, 1, &set->victory) != 0) {
-    if (fighter_try_load_clip(base_root, "idle", 10, 1, &set->victory) != 0) {
-      return -1;
+  if (fighter_try_load_clip(base_root, "extras/victory_1", 6, 0, &set->victory) != 0) {
+    if (fighter_try_load_clip(base_root, "extras/victory_2", 6, 0, &set->victory) != 0) {
+      if (fighter_try_load_clip(base_root, "idle", 10, 0, &set->victory) != 0) {
+        return -1;
+      }
     }
   }
-}
 
   return 0;
 }
@@ -543,6 +541,8 @@ fighter_select_clip_for_player(const fighter_player_state_t *player,
       return &set->jump;
     case FIGHTER_VISUAL_STATE_GUARD:
       return &set->guard;
+    case FIGHTER_VISUAL_STATE_CROUCH_GUARD:
+      return &set->crouch;
     case FIGHTER_VISUAL_STATE_BLOCK_STUN:
       return &set->block_stun;
     case FIGHTER_VISUAL_STATE_HIT:
@@ -568,8 +568,8 @@ fighter_select_clip_for_player(const fighter_player_state_t *player,
         default:
           return &set->normal_attack;
       }
-   case FIGHTER_VISUAL_STATE_VICTORY:
-  	return &set->victory;
+    case FIGHTER_VISUAL_STATE_VICTORY:
+      return &set->victory;
     default:
       return &set->idle;
   }

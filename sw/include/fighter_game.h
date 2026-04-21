@@ -33,7 +33,8 @@ typedef enum {
   FIGHTER_VISUAL_STATE_HIT,
   FIGHTER_VISUAL_STATE_BLOCK_STUN,
   FIGHTER_VISUAL_STATE_KO,
-  FIGHTER_VISUAL_STATE_VICTORY
+  FIGHTER_VISUAL_STATE_VICTORY,
+  FIGHTER_VISUAL_STATE_CROUCH_GUARD
 } fighter_visual_state_t;
 
 typedef enum {
@@ -91,6 +92,7 @@ typedef struct {
   int menu_anim_period_frames;
   int game_over_anim_frames;
   int attack_cooldown_frames;
+  int dragon_punch_lift_velocity;
   int attack_visual_frames;
   int hurt_visual_frames;
 } fighter_game_config_t;
@@ -113,6 +115,7 @@ typedef struct {
   int attack_visual_frames;
   int hurt_visual_frames;
   int attack_phase_frames;
+  int attack_has_connected;
   int block_stun_frames;
 
   fighter_attack_command_t last_attack;

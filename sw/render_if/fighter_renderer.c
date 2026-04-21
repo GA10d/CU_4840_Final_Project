@@ -20,6 +20,7 @@ typedef struct {
   unsigned char rows[7];
 } fighter_glyph_t;
 
+#ifdef __linux__
 static const fighter_glyph_t k_fighter_glyphs[] = {
     {' ', {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}},
     {'0', {0x0e, 0x11, 0x13, 0x15, 0x19, 0x11, 0x0e}},
@@ -77,6 +78,7 @@ static const fighter_glyph_t *fighter_find_glyph(char ch) {
 
   return &k_fighter_glyphs[0];
 }
+#endif
 
 const char *fighter_renderer_menu_frame_path(int frame_index) {
   static const char *const k_menu_frames[2] = {
@@ -140,7 +142,9 @@ static const char *fighter_renderer_visual_state_name(
     case FIGHTER_VISUAL_STATE_CROUCH:
       return "CROUCH";
     case FIGHTER_VISUAL_STATE_GUARD:
-      return "GUARD";
+      return "STAND_GUARD";
+    case FIGHTER_VISUAL_STATE_CROUCH_GUARD:
+      return "CROUCH_GUARD";
     case FIGHTER_VISUAL_STATE_ATTACK:
       return "ATTACK";
     case FIGHTER_VISUAL_STATE_HIT:
@@ -149,6 +153,8 @@ static const char *fighter_renderer_visual_state_name(
       return "BLOCK_STUN";
     case FIGHTER_VISUAL_STATE_KO:
       return "KO";
+    case FIGHTER_VISUAL_STATE_VICTORY:
+      return "VICTORY";
     default:
       return "UNKNOWN";
   }
@@ -1279,6 +1285,8 @@ void fighter_renderer_draw(fighter_renderer_t *renderer,
   if (!renderer || !game) {
     return;
   }
+
+  (void)anim_system;
 
 #ifdef __linux__
   if (renderer->backend == FIGHTER_RENDERER_BACKEND_FRAMEBUFFER) {
