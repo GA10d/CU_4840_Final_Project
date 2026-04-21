@@ -681,21 +681,11 @@ void fighter_animation_system_update(fighter_animation_system_t *system,
         fighter_select_clip_for_player(player, set);
     fighter_player_animation_state_t *state = &system->players[i];
 
-	    if (state->current_clip != next_clip) {
-  printf("P%d reset clip=%p frames=%d\n",
-         i,
-         (void *)next_clip,
-         next_clip ? next_clip->frame_count : 0);
-  fighter_animation_state_reset(state, next_clip);
-} else {
-  fighter_animation_state_advance(state);
-  printf("P%d advance clip=%p frame=%d tick=%d/%d\n",
-         i,
-         (void *)next_clip,
-         state->frame_index,
-         state->tick_in_frame,
-         next_clip ? next_clip->ticks_per_frame : 0);
-}
+    if (state->current_clip != next_clip) {
+      fighter_animation_state_reset(state, next_clip);
+    } else {
+      fighter_animation_state_advance(state);
+    }
   }
 }
 
