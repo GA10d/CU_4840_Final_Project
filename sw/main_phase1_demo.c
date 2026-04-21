@@ -2,6 +2,7 @@
 #include "fighter_game.h"
 #include "fighter_input.h"
 #include "fighter_renderer.h"
+#include "fighter_animation.h"
 
 #include <signal.h>
 #include <stdint.h>
@@ -123,6 +124,7 @@ int main(int argc, char **argv) {
   fighter_renderer_options_t renderer_options;
   fighter_audio_context_t audio_context;
   fighter_audio_options_t audio_options;
+  fighter_animation_system_t anim_system;
   fighter_player_parser_t parsers[FIGHTER_PLAYER_COUNT];
   fighter_player_result_t inputs[FIGHTER_PLAYER_COUNT];
   fighter_audio_command_list_t audio_commands;
@@ -188,6 +190,14 @@ int main(int argc, char **argv) {
   fighter_game_init(&game, NULL);
   (void)fighter_renderer_init(&renderer, &renderer_options);
   (void)fighter_audio_init(&audio_context, &audio_options);
+
+  if (fighter_animation_system_init(&anim_system) != 0) {
+    fprintf(stderr, "failed to initialize animation system\n");
+    fighter_renderer_close(&renderer);
+    fighter_audio_close(&audio_context);
+    return 1;
+  }
+
   for (i = 0; i < FIGHTER_PLAYER_COUNT; ++i) {
     fighter_player_parser_init(&parsers[i]);
   }
@@ -208,6 +218,7 @@ int main(int argc, char **argv) {
     fprintf(stderr,
             "this build was compiled without libusb support; use --script or "
             "install libusb on the target board\n");
+    fighter_animation_system_close(&anim_system);
     fighter_renderer_close(&renderer);
     fighter_audio_close(&audio_context);
     return 1;
@@ -248,8 +259,9 @@ int main(int argc, char **argv) {
     }
 
     fighter_game_tick(&game, inputs, &audio_commands);
+    fighter_animation_system_update(&anim_system, &game);
     fighter_audio_process_commands(&audio_context, &audio_commands);
-    fighter_renderer_draw(&renderer, &game);
+    fighter_renderer_draw(&renderer, &game, &anim_system);
 
     if (realtime ||
         strcmp(fighter_renderer_backend_name(&renderer), "framebuffer") == 0) {
@@ -264,6 +276,8 @@ int main(int argc, char **argv) {
     usb_hid_keyboard_manager_close(&keyboard_manager);
   }
 #endif
+
+  fighter_animation_system_close(&anim_system);
   fighter_audio_close(&audio_context);
   fighter_renderer_close(&renderer);
   return 0;

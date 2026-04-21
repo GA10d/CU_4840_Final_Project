@@ -19,6 +19,11 @@ typedef enum {
 } fighter_game_state_t;
 
 typedef enum {
+  FIGHTER_CHARACTER_RYU = 0,
+  FIGHTER_CHARACTER_KEN = 1
+} fighter_character_id_t;
+
+typedef enum {
   FIGHTER_VISUAL_STATE_IDLE = 0,
   FIGHTER_VISUAL_STATE_WALK,
   FIGHTER_VISUAL_STATE_JUMP,
@@ -27,7 +32,8 @@ typedef enum {
   FIGHTER_VISUAL_STATE_ATTACK,
   FIGHTER_VISUAL_STATE_HIT,
   FIGHTER_VISUAL_STATE_BLOCK_STUN,
-  FIGHTER_VISUAL_STATE_KO
+  FIGHTER_VISUAL_STATE_KO,
+  FIGHTER_VISUAL_STATE_VICTORY
 } fighter_visual_state_t;
 
 typedef enum {
@@ -63,12 +69,12 @@ typedef enum {
 } fighter_finish_reason_t;
 
 enum {
-  FIGHTER_PLAYER_EVENT_NONE = 0,
+  FIGHTER_PLAYER_EVENT_NONE         = 0,
   FIGHTER_PLAYER_EVENT_ATTACK_START = 1 << 0,
-  FIGHTER_PLAYER_EVENT_HIT = 1 << 1,
-  FIGHTER_PLAYER_EVENT_BLOCK = 1 << 2,
-  FIGHTER_PLAYER_EVENT_LAND = 1 << 3,
-  FIGHTER_PLAYER_EVENT_KO = 1 << 4
+  FIGHTER_PLAYER_EVENT_HIT          = 1 << 1,
+  FIGHTER_PLAYER_EVENT_BLOCK        = 1 << 2,
+  FIGHTER_PLAYER_EVENT_LAND         = 1 << 3,
+  FIGHTER_PLAYER_EVENT_KO           = 1 << 4
 };
 
 typedef struct {
@@ -92,20 +98,31 @@ typedef struct {
 typedef struct {
   int x;
   int y;
+
+  /* Velocity used by gameplay and animation binding.
+   * vx helps the renderer/animation layer distinguish
+   * neutral jump, forward jump, and back jump.
+   */
+  int vx;
   int vy;
+
   int hp;
   int facing;
+
   int attack_cooldown_frames;
   int attack_visual_frames;
   int hurt_visual_frames;
+  int attack_phase_frames;
+  int block_stun_frames;
+
   fighter_attack_command_t last_attack;
   fighter_attack_phase_t attack_phase;
   fighter_combat_result_t combat_result;
   fighter_visual_state_t visual_state;
+  fighter_character_id_t character_id;
+
   uint32_t event_flags;
   uint32_t state_frame;
-  int attack_phase_frames;
-  int block_stun_frames;
 } fighter_player_state_t;
 
 typedef struct {

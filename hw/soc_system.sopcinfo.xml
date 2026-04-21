@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <EnsembleReport name="soc_system" kind="soc_system" version="1.0" fabric="QSYS">
  <!-- Format version 21.1 842 (Future versions may contain additional information.) -->
- <!-- 2026.04.17.13:31:55 -->
+ <!-- 2026.04.15.17:39:22 -->
  <!-- A collection of modules and connections -->
  <parameter name="AUTO_GENERATION_ID">
   <type>java.lang.Integer</type>
-  <value>1776447109</value>
+  <value>1776289157</value>
   <derived>false</derived>
   <enabled>true</enabled>
   <visible>false</visible>
@@ -437,7 +437,7 @@ the requested settings for a module instance. -->
    <value>csee4840</value>
   </assignment>
   <parameter name="FIFO_DEPTH">
-   <type>int</type>
+   <type>java.lang.String</type>
    <value>128</value>
    <derived>false</derived>
    <enabled>true</enabled>
@@ -445,7 +445,7 @@ the requested settings for a module instance. -->
    <valid>true</valid>
   </parameter>
   <parameter name="CLK_HZ">
-   <type>int</type>
+   <type>java.lang.String</type>
    <value>50000000</value>
    <derived>false</derived>
    <enabled>true</enabled>
@@ -453,7 +453,7 @@ the requested settings for a module instance. -->
    <valid>true</valid>
   </parameter>
   <parameter name="I2C_RATE_HZ">
-   <type>int</type>
+   <type>java.lang.String</type>
    <value>100000</value>
    <derived>false</derived>
    <enabled>true</enabled>
@@ -461,7 +461,7 @@ the requested settings for a module instance. -->
    <valid>true</valid>
   </parameter>
   <parameter name="XCK_DIV">
-   <type>int</type>
+   <type>java.lang.String</type>
    <value>4</value>
    <derived>false</derived>
    <enabled>true</enabled>
@@ -469,7 +469,7 @@ the requested settings for a module instance. -->
    <valid>true</valid>
   </parameter>
   <parameter name="BCLK_DIV">
-   <type>int</type>
+   <type>java.lang.String</type>
    <value>16</value>
    <derived>false</derived>
    <enabled>true</enabled>

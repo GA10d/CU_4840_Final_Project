@@ -261,19 +261,40 @@ static void fighter_game_reset_round(fighter_game_t *game) {
   ground_y = fighter_player_ground_y(game);
 
   memset(game->players, 0, sizeof(game->players));
+
   game->players[0].x = game->config.screen_width / 4 - game->config.player_width / 2;
   game->players[1].x =
       (game->config.screen_width * 3) / 4 - game->config.player_width / 2;
+
   game->players[0].y = ground_y;
   game->players[1].y = ground_y;
+
+  game->players[0].vx = 0;
+  game->players[1].vx = 0;
+  game->players[0].vy = 0;
+  game->players[1].vy = 0;
+
   game->players[0].hp = game->config.max_hp;
   game->players[1].hp = game->config.max_hp;
+
   game->players[0].facing = 1;
   game->players[1].facing = -1;
+
   game->players[0].last_attack = FIGHTER_ATTACK_NONE;
   game->players[1].last_attack = FIGHTER_ATTACK_NONE;
+
+  game->players[0].attack_phase = FIGHTER_ATTACK_PHASE_NONE;
+  game->players[1].attack_phase = FIGHTER_ATTACK_PHASE_NONE;
+
   game->players[0].visual_state = FIGHTER_VISUAL_STATE_IDLE;
   game->players[1].visual_state = FIGHTER_VISUAL_STATE_IDLE;
+
+  game->players[0].character_id = FIGHTER_CHARACTER_RYU;
+  game->players[1].character_id = FIGHTER_CHARACTER_KEN;
+
+  game->players[0].state_frame = 0;
+  game->players[1].state_frame = 0;
+
   game->round_timer_frames = (uint32_t)game->config.round_duration_frames;
   game->winner = FIGHTER_WINNER_NONE;
   game->finish_reason = FIGHTER_FINISH_REASON_NONE;
@@ -323,10 +344,32 @@ static void fighter_game_enter_game_over(fighter_game_t *game,
                                          fighter_winner_t winner,
                                          fighter_finish_reason_t reason,
                                          fighter_audio_command_list_t *audio_commands) {
+  if (!game) {
+    return;
+  }
+
   game->state = FIGHTER_GAME_STATE_GAME_OVER;
   game->state_frames = 0;
   game->winner = winner;
   game->finish_reason = reason;
+
+  if (winner == FIGHTER_WINNER_PLAYER1) {
+    game->players[0].visual_state = FIGHTER_VISUAL_STATE_VICTORY;
+    game->players[0].state_frame = 0;
+    game->players[1].visual_state = FIGHTER_VISUAL_STATE_KO;
+    game->players[1].state_frame = 0;
+  } else if (winner == FIGHTER_WINNER_PLAYER2) {
+    game->players[1].visual_state = FIGHTER_VISUAL_STATE_VICTORY;
+    game->players[1].state_frame = 0;
+    game->players[0].visual_state = FIGHTER_VISUAL_STATE_KO;
+    game->players[0].state_frame = 0;
+  } else if (winner == FIGHTER_WINNER_DRAW) {
+    game->players[0].visual_state = FIGHTER_VISUAL_STATE_KO;
+    game->players[1].visual_state = FIGHTER_VISUAL_STATE_KO;
+    game->players[0].state_frame = 0;
+    game->players[1].state_frame = 0;
+  }
+
   fighter_game_push_audio(audio_commands, FIGHTER_AUDIO_COMMAND_PLAY_ONCE,
                           FIGHTER_AUDIO_TRACK_GAME_OVER);
 }
@@ -387,6 +430,9 @@ static fighter_visual_state_t fighter_game_choose_visual_state(
     return FIGHTER_VISUAL_STATE_IDLE;
   }
 
+  if (player->visual_state == FIGHTER_VISUAL_STATE_VICTORY) {
+    return FIGHTER_VISUAL_STATE_VICTORY;
+  }
   if (player->hp <= 0) {
     return FIGHTER_VISUAL_STATE_KO;
   }
@@ -675,6 +721,8 @@ static void fighter_game_handle_player(fighter_game_t *game,
   max_x = game->config.screen_width - game->config.player_width;
   was_airborne = fighter_player_is_airborne(game, player);
 
+  player->vx = 0;
+
   if (player->attack_cooldown_frames > 0) {
     player->attack_cooldown_frames--;
   }
@@ -695,9 +743,9 @@ static void fighter_game_handle_player(fighter_game_t *game,
 
     if (!input->guard_held && !input->crouch_held) {
       if (input->move_left && !input->move_right) {
-        player->x -= game->config.walk_speed;
+        player->vx = -game->config.walk_speed;
       } else if (input->move_right && !input->move_left) {
-        player->x += game->config.walk_speed;
+        player->vx = game->config.walk_speed;
       }
     }
 
@@ -707,7 +755,9 @@ static void fighter_game_handle_player(fighter_game_t *game,
     }
   }
 
+  player->x += player->vx;
   player->x = fighter_clamp_int(player->x, 0, max_x);
+
   player->y += player->vy;
   if (player->y < ground_y) {
     player->vy += game->config.gravity;

@@ -19,6 +19,7 @@ COMMON_SRCS := \
 	game/fighter_game.c \
 	input/fighter_input.c \
 	input/hid_keyboard_report.c \
+	fighter_animation.c \
 	render_if/fighter_mmio.c \
 	render_if/fighter_renderer.c
 COMMON_OBJS := $(COMMON_SRCS:.c=.o)
