@@ -1,4 +1,8 @@
 CC=cc
-CFLAGS=-std=c11 -Wall -Wextra -Werror -D_POSIX_C_SOURCE=200809L -Iinclude -DFIGHTER_ENABLE_LIBUSB=0
+CPPFLAGS=-Iinclude -DFIGHTER_ENABLE_LIBUSB=0
+CFLAGS=-std=c11 -Wall -Wextra -Werror -D_POSIX_C_SOURCE=200809L -pthread
+LDFLAGS=-pthread
+LDLIBS=
+USB_LDLIBS=
 UNAME_S=Darwin
 UNAME_M=arm64

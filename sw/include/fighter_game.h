@@ -19,6 +19,11 @@ typedef enum {
 } fighter_game_state_t;
 
 typedef enum {
+  FIGHTER_CHARACTER_RYU = 0,
+  FIGHTER_CHARACTER_KEN = 1
+} fighter_character_id_t;
+
+typedef enum {
   FIGHTER_VISUAL_STATE_IDLE = 0,
   FIGHTER_VISUAL_STATE_WALK,
   FIGHTER_VISUAL_STATE_JUMP,
@@ -26,8 +31,27 @@ typedef enum {
   FIGHTER_VISUAL_STATE_GUARD,
   FIGHTER_VISUAL_STATE_ATTACK,
   FIGHTER_VISUAL_STATE_HIT,
-  FIGHTER_VISUAL_STATE_KO
+  FIGHTER_VISUAL_STATE_BLOCK_STUN,
+  FIGHTER_VISUAL_STATE_KO,
+  FIGHTER_VISUAL_STATE_VICTORY
 } fighter_visual_state_t;
+
+typedef enum {
+  FIGHTER_ATTACK_PHASE_NONE = 0,
+  FIGHTER_ATTACK_PHASE_STARTUP,
+  FIGHTER_ATTACK_PHASE_ACTIVE,
+  FIGHTER_ATTACK_PHASE_HIT_CONFIRM,
+  FIGHTER_ATTACK_PHASE_BLOCK_CONFIRM,
+  FIGHTER_ATTACK_PHASE_RECOVERY
+} fighter_attack_phase_t;
+
+typedef enum {
+  FIGHTER_COMBAT_RESULT_NONE = 0,
+  FIGHTER_COMBAT_RESULT_HIT,
+  FIGHTER_COMBAT_RESULT_BLOCKED,
+  FIGHTER_COMBAT_RESULT_TRADE,
+  FIGHTER_COMBAT_RESULT_WHIFF
+} fighter_combat_result_t;
 
 typedef enum {
   FIGHTER_WINNER_NONE = 0,
@@ -36,9 +60,22 @@ typedef enum {
   FIGHTER_WINNER_DRAW = 3
 } fighter_winner_t;
 
-typedef struct {
-  int x1, y1, x2, y2;  // AABB: 左上(x1,y1), 右下(x2,y2)
-} fighter_aabb_t;
+typedef enum {
+  FIGHTER_FINISH_REASON_NONE = 0,
+  FIGHTER_FINISH_REASON_KO,
+  FIGHTER_FINISH_REASON_TIME_OUT,
+  FIGHTER_FINISH_REASON_DOUBLE_KO,
+  FIGHTER_FINISH_REASON_EXIT
+} fighter_finish_reason_t;
+
+enum {
+  FIGHTER_PLAYER_EVENT_NONE         = 0,
+  FIGHTER_PLAYER_EVENT_ATTACK_START = 1 << 0,
+  FIGHTER_PLAYER_EVENT_HIT          = 1 << 1,
+  FIGHTER_PLAYER_EVENT_BLOCK        = 1 << 2,
+  FIGHTER_PLAYER_EVENT_LAND         = 1 << 3,
+  FIGHTER_PLAYER_EVENT_KO           = 1 << 4
+};
 
 typedef struct {
   int screen_width;
@@ -61,17 +98,31 @@ typedef struct {
 typedef struct {
   int x;
   int y;
+
+  /* Velocity used by gameplay and animation binding.
+   * vx helps the renderer/animation layer distinguish
+   * neutral jump, forward jump, and back jump.
+   */
+  int vx;
   int vy;
+
   int hp;
   int facing;
+
   int attack_cooldown_frames;
   int attack_visual_frames;
   int hurt_visual_frames;
+  int attack_phase_frames;
+  int block_stun_frames;
+
   fighter_attack_command_t last_attack;
+  fighter_attack_phase_t attack_phase;
+  fighter_combat_result_t combat_result;
   fighter_visual_state_t visual_state;
-  fighter_aabb_t hurtbox;  // 新增：hurtbox
-  int invuln_timer;        // 新增：invulnerability timer (帧数)
-  int hit_once;            // 新增：防止连续命中
+  fighter_character_id_t character_id;
+
+  uint32_t event_flags;
+  uint32_t state_frame;
 } fighter_player_state_t;
 
 typedef struct {
@@ -81,6 +132,7 @@ typedef struct {
   uint32_t state_frames;
   uint32_t round_timer_frames;
   fighter_winner_t winner;
+  fighter_finish_reason_t finish_reason;
   int menu_bgm_active;
   fighter_player_state_t players[FIGHTER_PLAYER_COUNT];
 } fighter_game_t;

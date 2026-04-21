@@ -38,5 +38,23 @@ void fighter_mmio_encode(const fighter_game_t *game,
       game->players[1].facing > 0 ? 1U : 0U;
   regs[FIGHTER_MMIO_REG_DEBUG_FLAGS] =
       ((uint32_t)game->players[0].last_attack & 0xffU) |
-      (((uint32_t)game->players[1].last_attack & 0xffU) << 8);
+      (((uint32_t)game->players[1].last_attack & 0xffU) << 8) |
+      (((uint32_t)game->players[0].attack_phase & 0x0fU) << 16) |
+      (((uint32_t)game->players[1].attack_phase & 0x0fU) << 20);
+  regs[FIGHTER_MMIO_REG_PLAYER1_ATTACK_CMD] =
+      (uint32_t)game->players[0].last_attack;
+  regs[FIGHTER_MMIO_REG_PLAYER2_ATTACK_CMD] =
+      (uint32_t)game->players[1].last_attack;
+  regs[FIGHTER_MMIO_REG_PLAYER1_STATE_FRAME] =
+      (uint32_t)game->players[0].state_frame;
+  regs[FIGHTER_MMIO_REG_PLAYER2_STATE_FRAME] =
+      (uint32_t)game->players[1].state_frame;
+  regs[FIGHTER_MMIO_REG_PLAYER1_EVENT_FLAGS] =
+      (uint32_t)game->players[0].event_flags;
+  regs[FIGHTER_MMIO_REG_PLAYER2_EVENT_FLAGS] =
+      (uint32_t)game->players[1].event_flags;
+  regs[FIGHTER_MMIO_REG_PLAYER1_COMBAT_RESULT] =
+      (uint32_t)game->players[0].combat_result;
+  regs[FIGHTER_MMIO_REG_PLAYER2_COMBAT_RESULT] =
+      (uint32_t)game->players[1].combat_result;
 }

@@ -45,7 +45,7 @@
 本次实现没有直接交付一个完整的 Quartus/Qsys 工程，但按 `Lab 3` 的思路补了后续迁移需要的接口：
 
 - 游戏状态到寄存器的编码
-- 面向 VGA 外设的固定寄存器布局
+- 面向显示/控制外设的固定寄存器布局
 - HPS 和 FPGA 之间清晰的数据边界
 
 对应代码在：
@@ -53,7 +53,7 @@
 - [fighter_mmio.h](/Users/guozhewen/Documents/GitHub/CU_4840_Final_Project/sw/include/fighter_mmio.h)
 - [fighter_mmio.c](/Users/guozhewen/Documents/GitHub/CU_4840_Final_Project/sw/render_if/fighter_mmio.c)
 
-如果你们后面把 `Lab 3` 的 `vga_ball` / `platform driver` 骨架搬进来，可以直接把这里的寄存器布局接进去。
+如果你们后面把 `Lab 3` 的 `platform driver` 骨架搬进来，可以直接把这里的寄存器布局接进去。
 
 ### DE1-SoC Manual
 
@@ -217,6 +217,10 @@ apt install -y alsa-utils
 - `DE1-SoC manual` 里音频演示明确写了要接 `LINE-OUT`
 - 如果接的是无源喇叭，声音可能不够
 
+如果你们现在要优先把板载 `WM8731` 路径跑通，而不是只测命令行播放器后端，直接看：
+
+- [audio_bringup_guide.md](/Users/guozhewen/Documents/GitHub/CU_4840_Final_Project/docs/audio_bringup_guide.md)
+
 ### 7.3 编译并运行
 
 ```bash
@@ -303,7 +307,7 @@ make
 1. 保留现在的 `fighter_game.c`
 2. 保留现在的输入层
 3. 用 [fighter_mmio.c](/Users/guozhewen/Documents/GitHub/CU_4840_Final_Project/sw/render_if/fighter_mmio.c) 把状态写进 `Lab 3` 风格寄存器
-4. 用 `Lab 3` 的 `Platform Designer + device tree + driver/ioctl` 链路把寄存器送到 FPGA VGA 外设
+4. 如果后续需要 FPGA 显示外设，再补 `Platform Designer + device tree + driver/ioctl` 链路
 5. 把 [fighter_renderer.c](/Users/guozhewen/Documents/GitHub/CU_4840_Final_Project/sw/render_if/fighter_renderer.c) 当作当前阶段的“软件参考画面”
 
 这样你们不用重写游戏逻辑，只需要替换渲染后端。

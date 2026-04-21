@@ -45,7 +45,9 @@
   - console / framebuffer 渲染
   - Lab 3 风格 MMIO 编码
 - `audio/`
-  - 菜单 BGM、SFX 的事件调度与命令行播放器后端
+  - 菜单 BGM、SFX 的事件调度
+  - WM8731/MMIO 播放路径
+  - 命令行播放器 fallback
 - `include/usb_hid_keyboard.h`
   - 底层 USB HID keyboard 管理接口
 - `input/usb_hid_keyboard.c`
@@ -56,6 +58,8 @@
   - 将按键组合解析成菜单动作和战斗指令
 - `main_input_demo.c`
   - 一个串口终端 demo，用于在 HPS 上验证输入识别
+- `main_audio_demo.c`
+  - 一个最小音频 bring-up 工具
 - `tests/test_phase1.c`
   - Phase 1 自动测试
 
@@ -77,6 +81,7 @@ make
 不依赖 `libusb` 的可执行文件：
 
 ```bash
+./audio_demo
 ./phase1_demo
 ./phase1_test
 ```
@@ -96,10 +101,15 @@ make
 脚本方式验证 Phase 1：
 
 ```bash
+./audio_demo --track menu_confirm --seconds 2
 ./phase1_test
 ./phase1_demo --script smoke --console
 ./phase1_demo --script ko --console
 ```
+
+如果要跑板载音频 bring-up，先看：
+
+- [audio_bringup_guide.md](/Users/guozhewen/Documents/GitHub/CU_4840_Final_Project/docs/audio_bringup_guide.md)
 
 ## Integration Suggestion
 

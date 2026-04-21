@@ -36,8 +36,20 @@ static fighter_game_config_t short_config(void) {
   return config;
 }
 
+static int ground_y(const fighter_game_t *game) {
+  return game->config.floor_y - game->config.player_height;
+}
+
 static void clear_inputs(fighter_player_result_t inputs[2]) {
   memset(inputs, 0, sizeof(fighter_player_result_t) * 2);
+}
+
+static void start_round(fighter_game_t *game,
+                        fighter_audio_command_list_t *commands,
+                        fighter_player_result_t inputs[2]) {
+  clear_inputs(inputs);
+  inputs[0].any_input_pressed = 1;
+  fighter_game_tick(game, inputs, commands);
 }
 
 static void test_menu_transition(void) {
@@ -69,14 +81,13 @@ static void test_exit_back_to_menu(void) {
   fighter_player_result_t inputs[2];
 
   fighter_game_init(&game, NULL);
-  clear_inputs(inputs);
-  inputs[0].any_input_pressed = 1;
-  fighter_game_tick(&game, inputs, &commands);
+  start_round(&game, &commands, inputs);
 
   clear_inputs(inputs);
   inputs[1].exit_requested = 1;
   fighter_game_tick(&game, inputs, &commands);
   EXPECT_EQ_INT(game.state, FIGHTER_GAME_STATE_MENU);
+  EXPECT_EQ_INT(game.finish_reason, FIGHTER_FINISH_REASON_EXIT);
   EXPECT_EQ_INT((int)commands.count, 1);
   EXPECT_EQ_INT(commands.commands[0].type, FIGHTER_AUDIO_COMMAND_START_LOOP);
 }
@@ -86,12 +97,11 @@ static void test_knockout_transition(void) {
   fighter_audio_command_list_t commands;
   fighter_player_result_t inputs[2];
   fighter_game_config_t config;
+  int i;
 
   config = short_config();
   fighter_game_init(&game, &config);
-  clear_inputs(inputs);
-  inputs[0].any_input_pressed = 1;
-  fighter_game_tick(&game, inputs, &commands);
+  start_round(&game, &commands, inputs);
 
   game.players[0].x = 260;
   game.players[1].x = 300;
@@ -101,9 +111,17 @@ static void test_knockout_transition(void) {
   inputs[0].attack_pressed = 1;
   inputs[0].attack_command = FIGHTER_ATTACK_FIREBALL;
   fighter_game_tick(&game, inputs, &commands);
+  clear_inputs(inputs);
+  for (i = 0; i < 8; ++i) {
+    fighter_game_tick(&game, inputs, &commands);
+    if (game.state == FIGHTER_GAME_STATE_GAME_OVER) {
+      break;
+    }
+  }
 
   EXPECT_EQ_INT(game.state, FIGHTER_GAME_STATE_GAME_OVER);
   EXPECT_EQ_INT(game.winner, FIGHTER_WINNER_PLAYER1);
+  EXPECT_EQ_INT(game.finish_reason, FIGHTER_FINISH_REASON_KO);
   EXPECT_EQ_INT((int)commands.count, 1);
   EXPECT_EQ_INT(commands.commands[0].track, FIGHTER_AUDIO_TRACK_GAME_OVER);
 }
@@ -147,9 +165,7 @@ static void test_timeout_and_mmio(void) {
   config.game_over_anim_frames = 2;
   fighter_game_init(&game, &config);
 
-  clear_inputs(inputs);
-  inputs[0].any_input_pressed = 1;
-  fighter_game_tick(&game, inputs, &commands);
+  start_round(&game, &commands, inputs);
 
   game.players[0].hp = 40;
   game.players[1].hp = 40;
@@ -158,6 +174,7 @@ static void test_timeout_and_mmio(void) {
 
   EXPECT_EQ_INT(game.state, FIGHTER_GAME_STATE_GAME_OVER);
   EXPECT_EQ_INT(game.winner, FIGHTER_WINNER_DRAW);
+  EXPECT_EQ_INT(game.finish_reason, FIGHTER_FINISH_REASON_TIME_OUT);
 
   fighter_mmio_encode(&game, regs);
   EXPECT_EQ_INT((int)regs[FIGHTER_MMIO_REG_GAME_STATE] & 0x3,
@@ -167,12 +184,150 @@ static void test_timeout_and_mmio(void) {
   EXPECT_EQ_INT((int)regs[FIGHTER_MMIO_REG_PLAYER2_HP], 40);
 }
 
+static void test_hit_confirm_state_machine(void) {
+  fighter_game_t game;
+  fighter_audio_command_list_t commands;
+  fighter_player_result_t inputs[2];
+  int i;
+
+  fighter_game_init(&game, NULL);
+  start_round(&game, &commands, inputs);
+
+  game.players[0].x = 260;
+  game.players[1].x = 300;
+
+  clear_inputs(inputs);
+  inputs[0].attack_pressed = 1;
+  inputs[0].attack_command = FIGHTER_ATTACK_NORMAL;
+  fighter_game_tick(&game, inputs, &commands);
+
+  clear_inputs(inputs);
+  for (i = 0; i < 8; ++i) {
+    fighter_game_tick(&game, inputs, &commands);
+    if (game.players[0].attack_phase == FIGHTER_ATTACK_PHASE_HIT_CONFIRM) {
+      break;
+    }
+  }
+
+  EXPECT_EQ_INT(game.players[0].attack_phase,
+                FIGHTER_ATTACK_PHASE_HIT_CONFIRM);
+  EXPECT_EQ_INT(game.players[0].combat_result, FIGHTER_COMBAT_RESULT_HIT);
+  EXPECT_TRUE((game.players[0].event_flags & FIGHTER_PLAYER_EVENT_HIT) != 0);
+  EXPECT_EQ_INT(game.players[1].visual_state, FIGHTER_VISUAL_STATE_HIT);
+  EXPECT_EQ_INT(game.players[1].combat_result, FIGHTER_COMBAT_RESULT_HIT);
+  EXPECT_TRUE(game.players[1].hurt_visual_frames > 0);
+}
+
+static void test_block_stun_and_mmio_fields(void) {
+  fighter_game_t game;
+  fighter_audio_command_list_t commands;
+  fighter_player_result_t inputs[2];
+  unsigned int regs[FIGHTER_MMIO_REG_COUNT];
+  int i;
+
+  fighter_game_init(&game, NULL);
+  start_round(&game, &commands, inputs);
+
+  game.players[0].x = 260;
+  game.players[1].x = 300;
+
+  clear_inputs(inputs);
+  inputs[0].attack_pressed = 1;
+  inputs[0].attack_command = FIGHTER_ATTACK_NORMAL;
+  inputs[1].guard_held = 1;
+  fighter_game_tick(&game, inputs, &commands);
+
+  for (i = 0; i < 8; ++i) {
+    clear_inputs(inputs);
+    inputs[1].guard_held = 1;
+    fighter_game_tick(&game, inputs, &commands);
+    if (game.players[1].block_stun_frames > 0) {
+      break;
+    }
+  }
+
+  EXPECT_TRUE(game.players[1].block_stun_frames > 0);
+  EXPECT_EQ_INT(game.players[1].visual_state,
+                FIGHTER_VISUAL_STATE_BLOCK_STUN);
+  EXPECT_EQ_INT(game.players[0].attack_phase,
+                FIGHTER_ATTACK_PHASE_BLOCK_CONFIRM);
+  EXPECT_EQ_INT(game.players[0].combat_result,
+                FIGHTER_COMBAT_RESULT_BLOCKED);
+  EXPECT_EQ_INT(game.players[1].combat_result,
+                FIGHTER_COMBAT_RESULT_BLOCKED);
+  EXPECT_TRUE((game.players[1].event_flags & FIGHTER_PLAYER_EVENT_BLOCK) != 0);
+
+  fighter_mmio_encode(&game, regs);
+  EXPECT_EQ_INT((int)regs[FIGHTER_MMIO_REG_PLAYER1_ATTACK_CMD],
+                FIGHTER_ATTACK_NORMAL);
+  EXPECT_EQ_INT((int)regs[FIGHTER_MMIO_REG_PLAYER2_STATE],
+                FIGHTER_VISUAL_STATE_BLOCK_STUN);
+  EXPECT_TRUE(regs[FIGHTER_MMIO_REG_PLAYER2_STATE_FRAME] == 0U);
+  EXPECT_TRUE((regs[FIGHTER_MMIO_REG_PLAYER2_EVENT_FLAGS] &
+               FIGHTER_PLAYER_EVENT_BLOCK) != 0U);
+  EXPECT_EQ_INT((int)regs[FIGHTER_MMIO_REG_PLAYER1_COMBAT_RESULT],
+                FIGHTER_COMBAT_RESULT_BLOCKED);
+  EXPECT_EQ_INT((int)regs[FIGHTER_MMIO_REG_PLAYER2_COMBAT_RESULT],
+                FIGHTER_COMBAT_RESULT_BLOCKED);
+}
+
+static void test_airborne_crossup_flips_facing(void) {
+  fighter_game_t game;
+  fighter_audio_command_list_t commands;
+  fighter_player_result_t inputs[2];
+  int i;
+
+  fighter_game_init(&game, NULL);
+  start_round(&game, &commands, inputs);
+
+  game.players[0].x = 276;
+  game.players[0].y = ground_y(&game) - game.config.player_height - 28;
+  game.players[0].vy = 0;
+  game.players[1].x = 300;
+
+  for (i = 0; i < 7; ++i) {
+    clear_inputs(inputs);
+    inputs[0].move_right = 1;
+    fighter_game_tick(&game, inputs, &commands);
+  }
+
+  EXPECT_TRUE(game.players[0].x > game.players[1].x);
+  EXPECT_TRUE(game.players[0].y < ground_y(&game));
+  EXPECT_EQ_INT(game.players[0].facing, -1);
+  EXPECT_EQ_INT(game.players[1].facing, 1);
+}
+
+static void test_grounded_overlap_still_resolves(void) {
+  fighter_game_t game;
+  fighter_audio_command_list_t commands;
+  fighter_player_result_t inputs[2];
+
+  fighter_game_init(&game, NULL);
+  start_round(&game, &commands, inputs);
+
+  game.players[0].x = 280;
+  game.players[1].x = 300;
+  game.players[0].y = ground_y(&game);
+  game.players[1].y = ground_y(&game);
+
+  clear_inputs(inputs);
+  fighter_game_tick(&game, inputs, &commands);
+
+  EXPECT_TRUE(game.players[0].x + game.config.player_width <= game.players[1].x);
+  EXPECT_EQ_INT(game.players[0].facing, 1);
+  EXPECT_EQ_INT(game.players[1].facing, -1);
+}
+
 int main(void) {
   test_menu_transition();
   test_exit_back_to_menu();
   test_knockout_transition();
   test_game_over_restart_gate();
   test_timeout_and_mmio();
+  test_hit_confirm_state_machine();
+  test_block_stun_and_mmio_fields();
+  test_airborne_crossup_flips_facing();
+  test_grounded_overlap_still_resolves();
 
   if (g_failures != 0) {
     fprintf(stderr, "phase1 tests failed: %d\n", g_failures);
