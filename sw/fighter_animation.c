@@ -57,6 +57,7 @@ static void fighter_free_animation_set(fighter_character_animation_set_t *set) {
   fighter_free_clip(&set->idle);
   fighter_free_clip(&set->walk);
   fighter_free_clip(&set->crouch);
+  fighter_free_clip(&set->crouch_guard);
   fighter_free_clip(&set->jump);
   fighter_free_clip(&set->guard);
   fighter_free_clip(&set->block_stun);
@@ -450,6 +451,14 @@ static int fighter_load_character_animation_set(
   if (fighter_try_load_clip(base_root, "idle", 10, 1, &set->idle) != 0) return -1;
   if (fighter_try_load_clip(base_root, "walk", 6, 1, &set->walk) != 0) return -1;
   if (fighter_try_load_clip(base_root, "crouch", 10, 0, &set->crouch) != 0) return -1;
+  if (fighter_try_load_clip(base_root, "crouch_guard", 6, 0, &set->crouch_guard) != 0) {
+    if (fighter_try_load_clip(base_root, "crouch_hit", 6, 0, &set->crouch_guard) != 0) {
+      if (fighter_try_load_clip(base_root, "crouch", 10, 0, &set->crouch_guard) != 0) {
+        fighter_free_animation_set(set);
+        return -1;
+      }
+    }
+  }
   if (fighter_try_load_clip(base_root, "jump", 8, 1, &set->jump) != 0) return -1;
   if (fighter_try_load_clip(base_root, "guard", 8, 1, &set->guard) != 0) return -1;
 
@@ -538,11 +547,17 @@ fighter_select_clip_for_player(const fighter_player_state_t *player,
     case FIGHTER_VISUAL_STATE_CROUCH:
       return &set->crouch;
     case FIGHTER_VISUAL_STATE_JUMP:
-      return &set->jump;
+      if (player->vx == 0) {
+        return &set->jump;
+      }
+      if (player->vx * player->facing > 0) {
+        return &set->forward_jump_attack;
+      }
+      return &set->back_jump_attack;
     case FIGHTER_VISUAL_STATE_GUARD:
       return &set->guard;
     case FIGHTER_VISUAL_STATE_CROUCH_GUARD:
-      return &set->crouch;
+      return &set->crouch_guard;
     case FIGHTER_VISUAL_STATE_BLOCK_STUN:
       return &set->block_stun;
     case FIGHTER_VISUAL_STATE_HIT:

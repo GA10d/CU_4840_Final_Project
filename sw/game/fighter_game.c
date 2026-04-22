@@ -61,11 +61,11 @@ static fighter_attack_profile_t fighter_attack_profile(
     fighter_attack_command_t attack) {
   switch (attack) {
     case FIGHTER_ATTACK_NORMAL:
-      return (fighter_attack_profile_t){48, 12, 3, 2, 5, 2, 2, 8, 3};
+      return (fighter_attack_profile_t){48, 12, 3, 2, 15, 2, 2, 8, 3};
     case FIGHTER_ATTACK_FIREBALL:
-      return (fighter_attack_profile_t){96, 18, 5, 1, 8, 2, 2, 10, 4};
+      return (fighter_attack_profile_t){96, 18, 5, 1, 35, 2, 2, 10, 4};
     case FIGHTER_ATTACK_DRAGON_PUNCH:
-      return (fighter_attack_profile_t){56, 20, 4, 4, 10, 2, 3, 10, 4};
+      return (fighter_attack_profile_t){56, 20, 4, 4, 36, 2, 3, 10, 4};
     case FIGHTER_ATTACK_JUMP_ATTACK:
       return (fighter_attack_profile_t){52, 14, 2, 3, 4, 2, 1, 8, 3};
     case FIGHTER_ATTACK_FORWARD_JUMP_ATTACK:
@@ -73,7 +73,7 @@ static fighter_attack_profile_t fighter_attack_profile(
     case FIGHTER_ATTACK_BACK_JUMP_ATTACK:
       return (fighter_attack_profile_t){52, 12, 2, 2, 4, 2, 1, 8, 3};
     case FIGHTER_ATTACK_SWEEP:
-      return (fighter_attack_profile_t){58, 15, 4, 3, 9, 2, 2, 9, 4};
+      return (fighter_attack_profile_t){58, 15, 4, 3, 18, 2, 2, 9, 4};
     case FIGHTER_ATTACK_NONE:
     default:
       return (fighter_attack_profile_t){0, 0, 0, 0, 0, 0, 0, 0, 0};
@@ -748,7 +748,9 @@ static void fighter_game_handle_player(fighter_game_t *game,
   max_x = game->config.screen_width - game->config.player_width;
   was_airborne = fighter_player_is_airborne(game, player);
 
-  player->vx = 0;
+  if (!was_airborne) {
+    player->vx = 0;
+  }
 
   if (player->attack_cooldown_frames > 0) {
     player->attack_cooldown_frames--;
@@ -772,10 +774,17 @@ static void fighter_game_handle_player(fighter_game_t *game,
   if (player->hp > 0 && !controls_locked) {
     if (input->jump_pressed && !was_airborne) {
       player->vy = game->config.jump_velocity;
+      if (input->move_left && !input->move_right) {
+        player->vx = -game->config.walk_speed;
+      } else if (input->move_right && !input->move_left) {
+        player->vx = game->config.walk_speed;
+      } else {
+        player->vx = 0;
+      }
     }
 
     is_airborne = fighter_player_is_airborne(game, player);
-    if (!is_airborne && !input->guard_held && !input->crouch_held) {
+    if (!is_airborne && !input->jump_held && !input->guard_held && !input->crouch_held) {
       if (input->move_left && !input->move_right) {
         player->vx = -game->config.walk_speed;
       } else if (input->move_right && !input->move_left) {
@@ -818,6 +827,7 @@ static void fighter_game_handle_player(fighter_game_t *game,
       player->event_flags |= FIGHTER_PLAYER_EVENT_LAND;
     }
     player->vy = 0;
+    player->vx = 0;
   }
 }
 

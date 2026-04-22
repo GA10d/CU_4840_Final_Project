@@ -308,6 +308,31 @@ static void test_grounded_jump_attack_requires_airborne(void) {
   EXPECT_EQ_INT(game.players[0].attack_phase, FIGHTER_ATTACK_PHASE_NONE);
 }
 
+static void test_directional_jump_moves_horizontally(void) {
+  fighter_game_t game;
+  fighter_audio_command_list_t commands;
+  fighter_player_result_t inputs[2];
+  int start_x;
+
+  fighter_game_init(&game, NULL);
+  start_round(&game, &commands, inputs);
+
+  start_x = game.players[0].x;
+  clear_inputs(inputs);
+  inputs[0].jump_pressed = 1;
+  inputs[0].jump_held = 1;
+  inputs[0].move_right = 1;
+  fighter_game_tick(&game, inputs, &commands);
+
+  EXPECT_TRUE(game.players[0].vy < 0);
+  EXPECT_TRUE(game.players[0].vx > 0);
+
+  clear_inputs(inputs);
+  fighter_game_tick(&game, inputs, &commands);
+  EXPECT_TRUE(game.players[0].x > start_x);
+  EXPECT_TRUE(game.players[0].y < ground_y(&game));
+}
+
 static void test_airborne_movement_and_attack_restrictions(void) {
   fighter_game_t game;
   fighter_audio_command_list_t commands;
@@ -413,6 +438,58 @@ static void test_attack_locks_out_movement(void) {
   EXPECT_EQ_INT(game.players[0].x, attack_x);
 }
 
+static void test_fireball_animation_not_cut_short(void) {
+  fighter_game_t game;
+  fighter_audio_command_list_t commands;
+  fighter_player_result_t inputs[2];
+  int i;
+
+  fighter_game_init(&game, NULL);
+  start_round(&game, &commands, inputs);
+  game.players[1].x = 520;
+
+  clear_inputs(inputs);
+  inputs[0].attack_pressed = 1;
+  inputs[0].attack_command = FIGHTER_ATTACK_FIREBALL;
+  fighter_game_tick(&game, inputs, &commands);
+
+  for (i = 0; i < 20; ++i) {
+    clear_inputs(inputs);
+    inputs[0].move_right = 1;
+    fighter_game_tick(&game, inputs, &commands);
+  }
+
+  EXPECT_TRUE(game.players[0].attack_phase != FIGHTER_ATTACK_PHASE_NONE);
+  EXPECT_EQ_INT(game.players[0].last_attack, FIGHTER_ATTACK_FIREBALL);
+}
+
+static void test_dragon_punch_animation_not_interrupted_by_input(void) {
+  fighter_game_t game;
+  fighter_audio_command_list_t commands;
+  fighter_player_result_t inputs[2];
+  int i;
+
+  fighter_game_init(&game, NULL);
+  start_round(&game, &commands, inputs);
+  game.players[1].x = 520;
+
+  clear_inputs(inputs);
+  inputs[0].attack_pressed = 1;
+  inputs[0].attack_command = FIGHTER_ATTACK_DRAGON_PUNCH;
+  fighter_game_tick(&game, inputs, &commands);
+
+  for (i = 0; i < 20; ++i) {
+    clear_inputs(inputs);
+    inputs[0].move_left = 1;
+    inputs[0].crouch_held = 1;
+    inputs[0].guard_held = 1;
+    fighter_game_tick(&game, inputs, &commands);
+  }
+
+  EXPECT_TRUE(game.players[0].attack_phase != FIGHTER_ATTACK_PHASE_NONE);
+  EXPECT_EQ_INT(game.players[0].last_attack, FIGHTER_ATTACK_DRAGON_PUNCH);
+}
+
 static void test_defaults_reduce_mobility(void) {
   fighter_game_config_t config;
 
@@ -492,10 +569,13 @@ int main(void) {
   test_block_stun_and_mmio_fields();
   test_crouch_guard_state();
   test_grounded_jump_attack_requires_airborne();
+  test_directional_jump_moves_horizontally();
   test_airborne_movement_and_attack_restrictions();
   test_grounded_overlap_still_resolves();
   test_dragon_punch_lifts_player();
   test_attack_locks_out_movement();
+  test_fireball_animation_not_cut_short();
+  test_dragon_punch_animation_not_interrupted_by_input();
   test_defaults_reduce_mobility();
   test_attack_hits_only_once_per_attack();
   test_non_looping_hold_animations_stop_on_last_frame();
