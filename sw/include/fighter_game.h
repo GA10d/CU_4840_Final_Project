@@ -84,6 +84,9 @@ typedef struct {
   int floor_y;
   int player_width;
   int player_height;
+  int projectile_width;
+  int projectile_height;
+  int projectile_speed;
   int walk_speed;
   int jump_velocity;
   int gravity;
@@ -129,6 +132,16 @@ typedef struct {
 } fighter_player_state_t;
 
 typedef struct {
+  int active;
+  int owner_index;
+  int x;
+  int y;
+  int vx;
+  fighter_character_id_t character_id;
+  uint32_t anim_ticks;
+} fighter_projectile_state_t;
+
+typedef struct {
   fighter_game_config_t config;
   fighter_game_state_t state;
   uint32_t frame_counter;
@@ -138,6 +151,7 @@ typedef struct {
   fighter_finish_reason_t finish_reason;
   int menu_bgm_active;
   fighter_player_state_t players[FIGHTER_PLAYER_COUNT];
+  fighter_projectile_state_t projectiles[FIGHTER_PLAYER_COUNT];
 } fighter_game_t;
 
 void fighter_game_config_default(fighter_game_config_t *config);

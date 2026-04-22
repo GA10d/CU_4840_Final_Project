@@ -882,6 +882,78 @@ static void fighter_renderer_draw_player_fb(
   fighter_fb_draw_sprite(renderer, sprite, draw_x, draw_y, draw_w, draw_h, flip_x);
 }
 
+static const fighter_sprite_t *fighter_renderer_fireball_sprite(
+    const fighter_animation_system_t *anim_system,
+    fighter_character_id_t character_id,
+    uint32_t anim_ticks) {
+  const fighter_character_animation_set_t *set;
+  const fighter_animation_clip_t *clip;
+  int frames_to_loop;
+  int ticks_per_frame;
+  int frame_index;
+
+  if (!anim_system) {
+    return NULL;
+  }
+
+  set = character_id == FIGHTER_CHARACTER_KEN ? &anim_system->ken : &anim_system->ryu;
+  clip = &set->fireball_projectile;
+  if (!clip->frames || clip->frame_count <= 0) {
+    return NULL;
+  }
+
+  frames_to_loop = clip->frame_count < 2 ? clip->frame_count : 2;
+  ticks_per_frame = clip->ticks_per_frame > 0 ? clip->ticks_per_frame : 1;
+  frame_index = (int)((anim_ticks / (uint32_t)ticks_per_frame) % (uint32_t)frames_to_loop);
+  return &clip->frames[frame_index];
+}
+
+static void fighter_renderer_draw_projectile_fb(
+    fighter_renderer_t *renderer,
+    const fighter_game_t *game,
+    const fighter_animation_system_t *anim_system,
+    const fighter_projectile_state_t *projectile) {
+  const fighter_sprite_t *sprite;
+  int hitbox_x;
+  int hitbox_y;
+  int hitbox_w;
+  int hitbox_h;
+  int draw_w;
+  int draw_h;
+  int draw_x;
+  int draw_y;
+  int flip_x;
+
+  if (!renderer || !game || !anim_system || !projectile || !projectile->active) {
+    return;
+  }
+
+  sprite = fighter_renderer_fireball_sprite(anim_system, projectile->character_id,
+                                            projectile->anim_ticks);
+  if (!sprite || !sprite->pixels || sprite->width <= 0 || sprite->height <= 0) {
+    return;
+  }
+
+  hitbox_x =
+      fighter_scale_axis(projectile->x, renderer->fb_width, game->config.screen_width);
+  hitbox_y =
+      fighter_scale_axis(projectile->y, renderer->fb_height, game->config.screen_height);
+  hitbox_w =
+      fighter_scale_size_axis(game->config.projectile_width, renderer->fb_width,
+                              game->config.screen_width);
+  hitbox_h =
+      fighter_scale_size_axis(game->config.projectile_height, renderer->fb_height,
+                              game->config.screen_height);
+
+  draw_w = hitbox_w;
+  draw_h = hitbox_h;
+  draw_x = hitbox_x + (hitbox_w - draw_w) / 2;
+  draw_y = hitbox_y + (hitbox_h - draw_h) / 2;
+
+  flip_x = projectile->vx < 0;
+  fighter_fb_draw_sprite(renderer, sprite, draw_x, draw_y, draw_w, draw_h, flip_x);
+}
+
 static void fighter_renderer_draw_menu_fb(fighter_renderer_t *renderer,
                                           const fighter_game_t *game) {
   fighter_fb_image_t *cached_image;
@@ -1011,6 +1083,10 @@ static void fighter_renderer_draw_playfield_fb(
   if (anim_system) {
     fighter_renderer_draw_player_fb(renderer, game, anim_system, 0);
     fighter_renderer_draw_player_fb(renderer, game, anim_system, 1);
+    fighter_renderer_draw_projectile_fb(renderer, game, anim_system,
+                                        &game->projectiles[0]);
+    fighter_renderer_draw_projectile_fb(renderer, game, anim_system,
+                                        &game->projectiles[1]);
   }
 
   bar_w = fighter_scale_size_axis(220, renderer->fb_width, 640);

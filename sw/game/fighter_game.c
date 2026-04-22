@@ -24,6 +24,27 @@ static int fighter_clamp_int(int value, int min_value, int max_value) {
   return value;
 }
 
+static int fighter_rects_overlap(int lhs_x,
+                                 int lhs_y,
+                                 int lhs_w,
+                                 int lhs_h,
+                                 int rhs_x,
+                                 int rhs_y,
+                                 int rhs_w,
+                                 int rhs_h) {
+  return lhs_x < rhs_x + rhs_w && lhs_x + lhs_w > rhs_x &&
+         lhs_y < rhs_y + rhs_h && lhs_y + lhs_h > rhs_y;
+}
+
+static void fighter_projectile_reset(fighter_projectile_state_t *projectile) {
+  if (!projectile) {
+    return;
+  }
+
+  memset(projectile, 0, sizeof(*projectile));
+  projectile->owner_index = -1;
+}
+
 static int fighter_player_ground_y(const fighter_game_t *game) {
   return game->config.floor_y - game->config.player_height;
 }
@@ -262,6 +283,170 @@ static int fighter_player_can_guard(const fighter_game_t *game,
   return fighter_player_can_enter_guard_state(game, player, input);
 }
 
+static void fighter_game_spawn_fireball(fighter_game_t *game, int player_index) {
+  fighter_projectile_state_t *projectile;
+  fighter_player_state_t *player;
+  int spawn_x;
+  int spawn_y;
+
+  if (!game || player_index < 0 || player_index >= FIGHTER_PLAYER_COUNT) {
+    return;
+  }
+
+  projectile = &game->projectiles[player_index];
+  if (projectile->active) {
+    return;
+  }
+
+  player = &game->players[player_index];
+  spawn_x = player->facing > 0
+                ? player->x + game->config.player_width + 4
+                : player->x - game->config.projectile_width - 4;
+  spawn_y = player->y + game->config.player_height / 3;
+
+  projectile->active = 1;
+  projectile->owner_index = player_index;
+  projectile->x = spawn_x;
+  projectile->y = spawn_y;
+  projectile->vx = player->facing * game->config.projectile_speed;
+  projectile->character_id = player->character_id;
+  projectile->anim_ticks = 0;
+}
+
+static void fighter_game_apply_projectile_hit(fighter_game_t *game,
+                                              int attacker_index) {
+  fighter_player_state_t *attacker;
+  fighter_player_state_t *target;
+  fighter_attack_profile_t profile;
+
+  if (!game || attacker_index < 0 || attacker_index >= FIGHTER_PLAYER_COUNT) {
+    return;
+  }
+
+  attacker = &game->players[attacker_index];
+  target = &game->players[1 - attacker_index];
+  profile = fighter_attack_profile(FIGHTER_ATTACK_FIREBALL);
+
+  target->hp -= profile.damage;
+  if (target->hp < 0) {
+    target->hp = 0;
+  }
+
+  attacker->combat_result = FIGHTER_COMBAT_RESULT_HIT;
+  attacker->event_flags |= FIGHTER_PLAYER_EVENT_HIT;
+
+  if (target->hp == 0) {
+    fighter_player_interrupt_attack(target);
+    target->hurt_visual_frames = 0;
+    target->block_stun_frames = 0;
+    target->combat_result = FIGHTER_COMBAT_RESULT_HIT;
+    target->event_flags |=
+        FIGHTER_PLAYER_EVENT_HIT | FIGHTER_PLAYER_EVENT_KO;
+  } else {
+    fighter_player_enter_hit(target, profile.hit_stun_frames,
+                             FIGHTER_COMBAT_RESULT_HIT);
+  }
+}
+
+static void fighter_game_apply_projectile_block(fighter_game_t *game,
+                                                int attacker_index) {
+  fighter_player_state_t *attacker;
+  fighter_player_state_t *target;
+  fighter_attack_profile_t profile;
+  int chip_damage;
+
+  if (!game || attacker_index < 0 || attacker_index >= FIGHTER_PLAYER_COUNT) {
+    return;
+  }
+
+  attacker = &game->players[attacker_index];
+  target = &game->players[1 - attacker_index];
+  profile = fighter_attack_profile(FIGHTER_ATTACK_FIREBALL);
+  chip_damage = fighter_attack_chip_damage(profile);
+
+  target->hp -= chip_damage;
+  if (target->hp < 0) {
+    target->hp = 0;
+  }
+
+  attacker->combat_result = FIGHTER_COMBAT_RESULT_BLOCKED;
+  attacker->event_flags |= FIGHTER_PLAYER_EVENT_BLOCK;
+
+  if (target->hp == 0) {
+    fighter_player_interrupt_attack(target);
+    target->hurt_visual_frames = 0;
+    target->block_stun_frames = 0;
+    target->combat_result = FIGHTER_COMBAT_RESULT_BLOCKED;
+    target->event_flags |=
+        FIGHTER_PLAYER_EVENT_BLOCK | FIGHTER_PLAYER_EVENT_KO;
+  } else {
+    fighter_player_enter_block_stun(target, profile.block_stun_frames);
+  }
+}
+
+static void fighter_game_update_projectiles(
+    fighter_game_t *game,
+    const fighter_player_result_t inputs[FIGHTER_PLAYER_COUNT]) {
+  int i;
+
+  if (!game || !inputs) {
+    return;
+  }
+
+  for (i = 0; i < FIGHTER_PLAYER_COUNT; ++i) {
+    fighter_projectile_state_t *projectile = &game->projectiles[i];
+
+    if (!projectile->active) {
+      continue;
+    }
+
+    projectile->x += projectile->vx;
+    projectile->anim_ticks++;
+
+    if (projectile->x + game->config.projectile_width < 0 ||
+        projectile->x >= game->config.screen_width) {
+      fighter_projectile_reset(projectile);
+    }
+  }
+
+  if (game->projectiles[0].active && game->projectiles[1].active &&
+      fighter_rects_overlap(game->projectiles[0].x, game->projectiles[0].y,
+                            game->config.projectile_width,
+                            game->config.projectile_height, game->projectiles[1].x,
+                            game->projectiles[1].y,
+                            game->config.projectile_width,
+                            game->config.projectile_height)) {
+    fighter_projectile_reset(&game->projectiles[0]);
+    fighter_projectile_reset(&game->projectiles[1]);
+    return;
+  }
+
+  for (i = 0; i < FIGHTER_PLAYER_COUNT; ++i) {
+    fighter_projectile_state_t *projectile = &game->projectiles[i];
+    fighter_player_state_t *target = &game->players[1 - i];
+    const fighter_player_result_t *target_input = &inputs[1 - i];
+
+    if (!projectile->active) {
+      continue;
+    }
+
+    if (!fighter_rects_overlap(projectile->x, projectile->y,
+                               game->config.projectile_width,
+                               game->config.projectile_height, target->x, target->y,
+                               game->config.player_width,
+                               game->config.player_height)) {
+      continue;
+    }
+
+    if (fighter_player_can_guard(game, target, target_input)) {
+      fighter_game_apply_projectile_block(game, i);
+    } else {
+      fighter_game_apply_projectile_hit(game, i);
+    }
+    fighter_projectile_reset(projectile);
+  }
+}
+
 static int fighter_player_controls_locked(const fighter_player_state_t *player) {
   if (!player) {
     return 1;
@@ -274,10 +459,14 @@ static int fighter_player_controls_locked(const fighter_player_state_t *player) 
 
 static void fighter_game_reset_round(fighter_game_t *game) {
   int ground_y;
+  int i;
 
   ground_y = fighter_player_ground_y(game);
 
   memset(game->players, 0, sizeof(game->players));
+  for (i = 0; i < FIGHTER_PLAYER_COUNT; ++i) {
+    fighter_projectile_reset(&game->projectiles[i]);
+  }
 
   game->players[0].x = game->config.screen_width / 4 - game->config.player_width / 2;
   game->players[1].x =
@@ -361,6 +550,8 @@ static void fighter_game_enter_game_over(fighter_game_t *game,
                                          fighter_winner_t winner,
                                          fighter_finish_reason_t reason,
                                          fighter_audio_command_list_t *audio_commands) {
+  int i;
+
   if (!game) {
     return;
   }
@@ -369,6 +560,9 @@ static void fighter_game_enter_game_over(fighter_game_t *game,
   game->state_frames = 0;
   game->winner = winner;
   game->finish_reason = reason;
+  for (i = 0; i < FIGHTER_PLAYER_COUNT; ++i) {
+    fighter_projectile_reset(&game->projectiles[i]);
+  }
 
   if (winner == FIGHTER_WINNER_PLAYER1) {
     game->players[0].visual_state = FIGHTER_VISUAL_STATE_VICTORY;
@@ -526,7 +720,7 @@ static fighter_combat_result_t fighter_game_evaluate_contact(
   }
 
   profile = fighter_attack_profile(attacker->last_attack);
-  if (profile.damage == 0) {
+  if (attacker->last_attack == FIGHTER_ATTACK_FIREBALL || profile.damage == 0) {
     return FIGHTER_COMBAT_RESULT_NONE;
   }
 
@@ -765,9 +959,12 @@ static void fighter_game_handle_player(fighter_game_t *game,
   previous_attack_phase = player->attack_phase;
   fighter_player_tick_attack_phase(player);
   if (previous_attack_phase != FIGHTER_ATTACK_PHASE_ACTIVE &&
-      player->attack_phase == FIGHTER_ATTACK_PHASE_ACTIVE &&
-      player->last_attack == FIGHTER_ATTACK_DRAGON_PUNCH && player->vy >= 0) {
-    player->vy = game->config.dragon_punch_lift_velocity;
+      player->attack_phase == FIGHTER_ATTACK_PHASE_ACTIVE) {
+    if (player->last_attack == FIGHTER_ATTACK_DRAGON_PUNCH && player->vy >= 0) {
+      player->vy = game->config.dragon_punch_lift_velocity;
+    } else if (player->last_attack == FIGHTER_ATTACK_FIREBALL) {
+      fighter_game_spawn_fireball(game, player_index);
+    }
   }
   controls_locked = fighter_player_controls_locked(player);
 
@@ -868,6 +1065,7 @@ static void fighter_game_tick_playing(fighter_game_t *game,
   fighter_game_resolve_overlap(game);
   fighter_game_update_facing(game);
   fighter_game_resolve_attacks(game, inputs);
+  fighter_game_update_projectiles(game, inputs);
 
   for (i = 0; i < FIGHTER_PLAYER_COUNT; ++i) {
     fighter_game_update_visual_state(game, &game->players[i], &inputs[i]);
@@ -927,6 +1125,9 @@ void fighter_game_config_default(fighter_game_config_t *config) {
   config->floor_y = 400;
   config->player_width = 48;
   config->player_height = 96;
+  config->projectile_width = 28;
+  config->projectile_height = 20;
+  config->projectile_speed = 8;
   config->walk_speed = 3;
   config->jump_velocity = -14;
   config->gravity = 1;

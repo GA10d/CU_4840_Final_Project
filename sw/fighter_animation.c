@@ -67,6 +67,7 @@ static void fighter_free_animation_set(fighter_character_animation_set_t *set) {
 
   fighter_free_clip(&set->normal_attack);
   fighter_free_clip(&set->fireball_attack);
+  fighter_free_clip(&set->fireball_projectile);
   fighter_free_clip(&set->dragon_punch_attack);
   fighter_free_clip(&set->jump_attack);
   fighter_free_clip(&set->forward_jump_attack);
@@ -474,6 +475,14 @@ static int fighter_load_character_animation_set(
                             &set->normal_attack) != 0) return -1;
   if (fighter_try_load_clip(base_root, "attack_fireball", 8, 0,
                             &set->fireball_attack) != 0) return -1;
+  if (fighter_try_load_clip(base_root, "fireball", 4, 1,
+                            &set->fireball_projectile) != 0) {
+    if (fighter_try_load_clip(base_root, "attack_fireball", 4, 1,
+                              &set->fireball_projectile) != 0) {
+      fighter_free_animation_set(set);
+      return -1;
+    }
+  }
   if (fighter_try_load_clip(base_root, "attack_dragon_punch", 6, 0,
                             &set->dragon_punch_attack) != 0) return -1;
   if (fighter_try_load_clip(base_root, "attack_jump", 5, 0,

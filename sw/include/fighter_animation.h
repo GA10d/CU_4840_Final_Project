@@ -37,6 +37,7 @@ typedef struct {
 
   fighter_animation_clip_t normal_attack;
   fighter_animation_clip_t fireball_attack;
+  fighter_animation_clip_t fireball_projectile;
   fighter_animation_clip_t dragon_punch_attack;
   fighter_animation_clip_t jump_attack;
   fighter_animation_clip_t forward_jump_attack;

@@ -113,7 +113,7 @@ static void test_knockout_transition(void) {
   inputs[0].attack_command = FIGHTER_ATTACK_FIREBALL;
   fighter_game_tick(&game, inputs, &commands);
   clear_inputs(inputs);
-  for (i = 0; i < 8; ++i) {
+  for (i = 0; i < 20; ++i) {
     fighter_game_tick(&game, inputs, &commands);
     if (game.state == FIGHTER_GAME_STATE_GAME_OVER) {
       break;
@@ -463,6 +463,109 @@ static void test_fireball_animation_not_cut_short(void) {
   EXPECT_EQ_INT(game.players[0].last_attack, FIGHTER_ATTACK_FIREBALL);
 }
 
+static void test_fireball_projectile_hits_and_disappears(void) {
+  fighter_game_t game;
+  fighter_audio_command_list_t commands;
+  fighter_player_result_t inputs[2];
+  int saw_projectile;
+  int i;
+
+  fighter_game_init(&game, NULL);
+  start_round(&game, &commands, inputs);
+  game.players[0].x = 120;
+  game.players[1].x = 360;
+
+  clear_inputs(inputs);
+  inputs[0].attack_pressed = 1;
+  inputs[0].attack_command = FIGHTER_ATTACK_FIREBALL;
+  fighter_game_tick(&game, inputs, &commands);
+
+  saw_projectile = 0;
+  for (i = 0; i < 60; ++i) {
+    clear_inputs(inputs);
+    fighter_game_tick(&game, inputs, &commands);
+    if (game.projectiles[0].active) {
+      saw_projectile = 1;
+    }
+    if (game.players[1].hurt_visual_frames > 0) {
+      break;
+    }
+  }
+
+  EXPECT_TRUE(saw_projectile);
+  EXPECT_TRUE(game.players[1].hp < game.config.max_hp);
+  EXPECT_EQ_INT(game.projectiles[0].active, 0);
+}
+
+static void test_fireball_projectiles_cancel_each_other(void) {
+  fighter_game_t game;
+  fighter_audio_command_list_t commands;
+  fighter_player_result_t inputs[2];
+  int saw_two_projectiles;
+  int i;
+
+  fighter_game_init(&game, NULL);
+  start_round(&game, &commands, inputs);
+  game.players[0].x = 120;
+  game.players[1].x = 420;
+
+  clear_inputs(inputs);
+  inputs[0].attack_pressed = 1;
+  inputs[0].attack_command = FIGHTER_ATTACK_FIREBALL;
+  inputs[1].attack_pressed = 1;
+  inputs[1].attack_command = FIGHTER_ATTACK_FIREBALL;
+  fighter_game_tick(&game, inputs, &commands);
+
+  saw_two_projectiles = 0;
+  for (i = 0; i < 80; ++i) {
+    clear_inputs(inputs);
+    fighter_game_tick(&game, inputs, &commands);
+    if (game.projectiles[0].active && game.projectiles[1].active) {
+      saw_two_projectiles = 1;
+    }
+    if (saw_two_projectiles &&
+        !game.projectiles[0].active && !game.projectiles[1].active) {
+      break;
+    }
+  }
+
+  EXPECT_TRUE(saw_two_projectiles);
+  EXPECT_EQ_INT(game.projectiles[0].active, 0);
+  EXPECT_EQ_INT(game.projectiles[1].active, 0);
+  EXPECT_EQ_INT(game.players[0].hp, game.config.max_hp);
+  EXPECT_EQ_INT(game.players[1].hp, game.config.max_hp);
+}
+
+static void test_fireball_projectile_disappears_at_boundary(void) {
+  fighter_game_t game;
+  fighter_audio_command_list_t commands;
+  fighter_player_result_t inputs[2];
+  int i;
+
+  fighter_game_init(&game, NULL);
+  start_round(&game, &commands, inputs);
+  game.players[0].x = game.config.screen_width - game.config.player_width - 90;
+  game.players[1].x = game.config.screen_width - game.config.player_width;
+  game.players[1].y = 0;
+  game.players[1].vy = -1;
+
+  clear_inputs(inputs);
+  inputs[0].attack_pressed = 1;
+  inputs[0].attack_command = FIGHTER_ATTACK_FIREBALL;
+  fighter_game_tick(&game, inputs, &commands);
+
+  for (i = 0; i < 80; ++i) {
+    clear_inputs(inputs);
+    fighter_game_tick(&game, inputs, &commands);
+    if (!game.projectiles[0].active) {
+      break;
+    }
+  }
+
+  EXPECT_EQ_INT(game.projectiles[0].active, 0);
+  EXPECT_EQ_INT(game.players[1].hp, game.config.max_hp);
+}
+
 static void test_dragon_punch_animation_not_interrupted_by_input(void) {
   fighter_game_t game;
   fighter_audio_command_list_t commands;
@@ -575,6 +678,9 @@ int main(void) {
   test_dragon_punch_lifts_player();
   test_attack_locks_out_movement();
   test_fireball_animation_not_cut_short();
+  test_fireball_projectile_hits_and_disappears();
+  test_fireball_projectiles_cancel_each_other();
+  test_fireball_projectile_disappears_at_boundary();
   test_dragon_punch_animation_not_interrupted_by_input();
   test_defaults_reduce_mobility();
   test_attack_hits_only_once_per_attack();
