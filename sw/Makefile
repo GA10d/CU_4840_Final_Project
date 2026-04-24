@@ -58,8 +58,7 @@ USB_LDLIBS := $(LIBUSB_LIBS)
 endif
 PHASE1_USB_OBJS := input/usb_hid_keyboard.o
 USB_TARGETS := $(INPUT_DEMO_TARGET)
-INPUT_DEMO_SRCS := main_input_demo.c input/usb_hid_keyboard.c \
-	input/fighter_input.c input/hid_keyboard_report.c fighter_ui.c
+INPUT_DEMO_SRCS := main_input_demo.c input/usb_hid_keyboard.c $(COMMON_SRCS)
 INPUT_DEMO_OBJS := $(INPUT_DEMO_SRCS:.c=.o)
 endif
 

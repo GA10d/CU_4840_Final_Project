@@ -57,7 +57,8 @@
 - `input/fighter_input.c`
   - 将按键组合解析成菜单动作和战斗指令
 - `main_input_demo.c`
-  - 一个串口终端 demo，用于在 HPS 上验证输入识别
+  - USB 键盘实时 demo
+  - 默认优先输出到 Linux framebuffer/VGA，失败时回退到 console
 - `main_audio_demo.c`
   - 一个最小音频 bring-up 工具
 - `tests/test_phase1.c`
@@ -97,6 +98,16 @@ make
 ```bash
 ./input_demo
 ```
+
+VGA / framebuffer 输出：
+
+```bash
+./input_demo
+./input_demo --fb /dev/fb0
+./input_demo --console
+```
+
+`input_demo` 会读取最多两个 USB 键盘，进入菜单后按任意映射键开始对局。若目标板上的 VGA framebuffer 不是 `/dev/fb0`，用 `--fb PATH` 指定；如果没有可用 framebuffer，会自动打印 console 渲染状态，方便继续调试逻辑。
 
 脚本方式验证 Phase 1：
 
