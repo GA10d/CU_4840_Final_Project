@@ -1,6 +1,7 @@
 #include "fighter_renderer.h"
 
 #include "fighter_animation.h"
+#include "fighter_mmio.h"
 
 #include <ctype.h>
 #include <errno.h>
@@ -14,6 +15,12 @@
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <unistd.h>
+#endif
+
+#ifdef __linux__
+static const off_t k_fighter_vga_default_bridge_reset_addr = (off_t)0xFFD0501C;
+static const off_t k_fighter_vga_default_mmio_addr = (off_t)0xFF200080;
+static const uint32_t k_fighter_vga_ident = 0x56504741U; /* "VPGA" */
 #endif
 
 typedef struct {
@@ -104,6 +111,211 @@ static const char *fighter_renderer_menu_frame_ppm_path(int frame_index) {
     return k_menu_frames[0];
   }
   return k_menu_frames[1];
+}
+#endif
+
+#ifdef __linux__
+static int fighter_renderer_parse_env_address(const char *env_name,
+                                              off_t default_value,
+                                              off_t *value_out) {
+  const char *text;
+  char *end;
+  unsigned long long parsed;
+
+  if (!env_name || !value_out) {
+    return -1;
+  }
+
+  text = getenv(env_name);
+  if (!text || text[0] == '\0') {
+    *value_out = default_value;
+    return 0;
+  }
+
+  errno = 0;
+  parsed = strtoull(text, &end, 0);
+  if (errno != 0 || end == text || !end || *end != '\0') {
+    return -1;
+  }
+
+  *value_out = (off_t)parsed;
+  return 0;
+}
+
+static int fighter_renderer_map_physical(int mem_fd,
+                                         off_t physical_addr,
+                                         size_t span,
+                                         void **map_base,
+                                         unsigned long *map_length,
+                                         volatile uint32_t **register_base) {
+  long page_size;
+  off_t page_base;
+  off_t page_offset;
+  size_t length;
+  void *mapped;
+
+  if (mem_fd < 0 || !map_base || !map_length || !register_base || span == 0) {
+    return -1;
+  }
+
+  page_size = sysconf(_SC_PAGESIZE);
+  if (page_size <= 0) {
+    return -1;
+  }
+
+  page_base = physical_addr & ~((off_t)page_size - 1);
+  page_offset = physical_addr - page_base;
+  length = (size_t)page_offset + span;
+  length = (length + (size_t)page_size - 1U) & ~((size_t)page_size - 1U);
+
+  mapped = mmap(NULL, length, PROT_READ | PROT_WRITE, MAP_SHARED, mem_fd,
+                page_base);
+  if (mapped == MAP_FAILED) {
+    return -1;
+  }
+
+  *map_base = mapped;
+  *map_length = (unsigned long)length;
+  *register_base =
+      (volatile uint32_t *)((unsigned char *)mapped + (size_t)page_offset);
+  return 0;
+}
+
+static void fighter_renderer_unmap_region(void **map_base,
+                                          unsigned long *map_length) {
+  if (!map_base || !map_length || !*map_base || *map_length == 0) {
+    return;
+  }
+
+  munmap(*map_base, (size_t)*map_length);
+  *map_base = NULL;
+  *map_length = 0;
+}
+
+static int fighter_renderer_enable_fpga_bridges(fighter_renderer_t *renderer) {
+  uint32_t value;
+
+  if (!renderer || !renderer->vga_bridge_reset_reg) {
+    return -1;
+  }
+
+  value = *renderer->vga_bridge_reset_reg;
+  value &= ~0x3U;
+  *renderer->vga_bridge_reset_reg = value;
+  return 0;
+}
+
+static void fighter_renderer_close_mmio(fighter_renderer_t *renderer) {
+  if (!renderer) {
+    return;
+  }
+
+  fighter_renderer_unmap_region(&renderer->vga_regs_map,
+                                &renderer->vga_regs_map_length);
+  fighter_renderer_unmap_region(&renderer->vga_bridge_map,
+                                &renderer->vga_bridge_map_length);
+  if (renderer->vga_mem_fd >= 0) {
+    close(renderer->vga_mem_fd);
+    renderer->vga_mem_fd = -1;
+  }
+  renderer->vga_regs = NULL;
+  renderer->vga_bridge_reset_reg = NULL;
+}
+
+static int fighter_renderer_init_mmio(fighter_renderer_t *renderer) {
+  off_t bridge_reset_addr;
+  off_t mmio_addr;
+  uint32_t ident;
+
+  if (!renderer) {
+    return -1;
+  }
+
+  renderer->vga_mem_fd = -1;
+  if (fighter_renderer_parse_env_address("FIGHTER_VGA_BRIDGE_RESET_ADDR",
+                                         k_fighter_vga_default_bridge_reset_addr,
+                                         &bridge_reset_addr) != 0) {
+    snprintf(renderer->init_status, sizeof(renderer->init_status),
+             "VGA MMIO: invalid FIGHTER_VGA_BRIDGE_RESET_ADDR=%s",
+             getenv("FIGHTER_VGA_BRIDGE_RESET_ADDR"));
+    return -1;
+  }
+  if (fighter_renderer_parse_env_address("FIGHTER_VGA_MMIO_ADDR",
+                                         k_fighter_vga_default_mmio_addr,
+                                         &mmio_addr) != 0) {
+    snprintf(renderer->init_status, sizeof(renderer->init_status),
+             "VGA MMIO: invalid FIGHTER_VGA_MMIO_ADDR=%s",
+             getenv("FIGHTER_VGA_MMIO_ADDR"));
+    return -1;
+  }
+
+  renderer->vga_mmio_addr = (unsigned long)mmio_addr;
+  renderer->vga_bridge_reset_addr = (unsigned long)bridge_reset_addr;
+  renderer->vga_mem_fd = open("/dev/mem", O_RDWR | O_SYNC);
+  if (renderer->vga_mem_fd < 0) {
+    snprintf(renderer->init_status, sizeof(renderer->init_status),
+             "VGA MMIO: open /dev/mem failed: %s", strerror(errno));
+    return -1;
+  }
+
+  if (fighter_renderer_map_physical(renderer->vga_mem_fd, bridge_reset_addr,
+                                    sizeof(uint32_t), &renderer->vga_bridge_map,
+                                    &renderer->vga_bridge_map_length,
+                                    &renderer->vga_bridge_reset_reg) != 0) {
+    snprintf(renderer->init_status, sizeof(renderer->init_status),
+             "VGA MMIO: map bridge reset 0x%08lX failed: %s",
+             (unsigned long)bridge_reset_addr, strerror(errno));
+    fighter_renderer_close_mmio(renderer);
+    return -1;
+  }
+  if (fighter_renderer_enable_fpga_bridges(renderer) != 0) {
+    snprintf(renderer->init_status, sizeof(renderer->init_status),
+             "VGA MMIO: failed to enable FPGA bridges");
+    fighter_renderer_close_mmio(renderer);
+    return -1;
+  }
+
+  if (fighter_renderer_map_physical(renderer->vga_mem_fd, mmio_addr,
+                                    FIGHTER_MMIO_REG_SPAN_COUNT *
+                                        sizeof(uint32_t),
+                                    &renderer->vga_regs_map,
+                                    &renderer->vga_regs_map_length,
+                                    &renderer->vga_regs) != 0) {
+    snprintf(renderer->init_status, sizeof(renderer->init_status),
+             "VGA MMIO: map renderer core 0x%08lX failed: %s",
+             (unsigned long)mmio_addr, strerror(errno));
+    fighter_renderer_close_mmio(renderer);
+    return -1;
+  }
+
+  ident = renderer->vga_regs[FIGHTER_MMIO_REG_IDENT];
+  if (ident != k_fighter_vga_ident) {
+    snprintf(renderer->init_status, sizeof(renderer->init_status),
+             "VGA MMIO: probe failed at 0x%08lX (ident=0x%08X)",
+             (unsigned long)mmio_addr, ident);
+    fighter_renderer_close_mmio(renderer);
+    return -1;
+  }
+
+  renderer->backend = FIGHTER_RENDERER_BACKEND_MMIO;
+  snprintf(renderer->init_status, sizeof(renderer->init_status),
+           "VGA MMIO active at 0x%08lX", (unsigned long)mmio_addr);
+  return 0;
+}
+
+static void fighter_renderer_draw_mmio(fighter_renderer_t *renderer,
+                                       const fighter_game_t *game) {
+  uint32_t regs[FIGHTER_MMIO_REG_COUNT];
+  int i;
+
+  if (!renderer || !renderer->vga_regs || !game) {
+    return;
+  }
+
+  fighter_mmio_encode(game, regs);
+  for (i = 0; i < FIGHTER_MMIO_REG_COUNT; ++i) {
+    renderer->vga_regs[i] = regs[i];
+  }
 }
 #endif
 
@@ -1276,6 +1488,12 @@ int fighter_renderer_init(fighter_renderer_t *renderer,
            "console renderer active");
 
 #ifdef __linux__
+  renderer->fb_fd = -1;
+  renderer->vga_mem_fd = -1;
+  if (local_options.prefer_framebuffer && fighter_renderer_init_mmio(renderer) == 0) {
+    return 0;
+  }
+
   {
     static const char *const k_default_framebuffer_paths[] = {
         "/dev/fb0",
@@ -1287,7 +1505,6 @@ int fighter_renderer_init(fighter_renderer_t *renderer,
     int initialized = 0;
     int attempted_framebuffer = 0;
     int i;
-  renderer->fb_fd = -1;
   if (local_options.prefer_framebuffer) {
     for (i = 0; i < (int)(sizeof(k_default_framebuffer_paths) /
                            sizeof(k_default_framebuffer_paths[0]));
@@ -1412,6 +1629,8 @@ void fighter_renderer_close(fighter_renderer_t *renderer) {
 #ifdef __linux__
   int i;
 
+  fighter_renderer_close_mmio(renderer);
+
   for (i = 0; i < 2; ++i) {
     fighter_rgb_image_reset(&renderer->menu_frames[i]);
     fighter_fb_image_reset(&renderer->menu_frame_cache[i]);
@@ -1439,6 +1658,11 @@ void fighter_renderer_draw(fighter_renderer_t *renderer,
   (void)anim_system;
 
 #ifdef __linux__
+  if (renderer->backend == FIGHTER_RENDERER_BACKEND_MMIO) {
+    fighter_renderer_draw_mmio(renderer, game);
+    return;
+  }
+
   if (renderer->backend == FIGHTER_RENDERER_BACKEND_FRAMEBUFFER) {
     switch (game->state) {
       case FIGHTER_GAME_STATE_MENU:
@@ -1466,8 +1690,15 @@ const char *fighter_renderer_backend_name(const fighter_renderer_t *renderer) {
     return "unknown";
   }
 
-  return renderer->backend == FIGHTER_RENDERER_BACKEND_FRAMEBUFFER ? "framebuffer"
-                                                                   : "console";
+  switch (renderer->backend) {
+    case FIGHTER_RENDERER_BACKEND_FRAMEBUFFER:
+      return "framebuffer";
+    case FIGHTER_RENDERER_BACKEND_MMIO:
+      return "mmio";
+    case FIGHTER_RENDERER_BACKEND_CONSOLE:
+    default:
+      return "console";
+  }
 }
 
 const char *fighter_renderer_active_framebuffer_path(

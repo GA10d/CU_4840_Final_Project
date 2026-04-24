@@ -12,7 +12,8 @@ extern "C" {
 
 typedef enum {
   FIGHTER_RENDERER_BACKEND_CONSOLE = 0,
-  FIGHTER_RENDERER_BACKEND_FRAMEBUFFER = 1
+  FIGHTER_RENDERER_BACKEND_FRAMEBUFFER = 1,
+  FIGHTER_RENDERER_BACKEND_MMIO = 2
 } fighter_renderer_backend_t;
 
 typedef struct {
@@ -64,6 +65,16 @@ typedef struct {
 
   fighter_rgb_image_t menu_frames[2];
   fighter_fb_image_t menu_frame_cache[2];
+
+  int vga_mem_fd;
+  void *vga_bridge_map;
+  unsigned long vga_bridge_map_length;
+  volatile uint32_t *vga_bridge_reset_reg;
+  void *vga_regs_map;
+  unsigned long vga_regs_map_length;
+  volatile uint32_t *vga_regs;
+  unsigned long vga_mmio_addr;
+  unsigned long vga_bridge_reset_addr;
 #endif
 } fighter_renderer_t;
 

@@ -323,6 +323,12 @@ module soc_system_top(
    fighter_vga_renderer fighter_vga0(
      .clk_50      ( CLOCK_50 ),
      .reset_n     ( vga_reset_n ),
+     .avs_chipselect ( 1'b0 ),
+     .avs_read       ( 1'b0 ),
+     .avs_write      ( 1'b0 ),
+     .avs_address    ( 5'd0 ),
+     .avs_writedata  ( 32'd0 ),
+     .avs_readdata   ( ),
      .vga_r       ( VGA_R ),
      .vga_g       ( VGA_G ),
      .vga_b       ( VGA_B ),
