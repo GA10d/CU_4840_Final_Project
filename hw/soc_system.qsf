@@ -47,6 +47,7 @@ set_global_assignment -name PROJECT_OUTPUT_DIRECTORY output_files
 set_global_assignment -name CYCLONEII_RESERVE_NCEO_AFTER_CONFIGURATION "USE AS REGULAR IO"
 set_global_assignment -name NUM_PARALLEL_PROCESSORS 4
 set_global_assignment -name SYSTEMVERILOG_FILE soc_system_top.sv
+set_global_assignment -name SYSTEMVERILOG_FILE fighter_vga_renderer.sv
 set_global_assignment -name QIP_FILE soc_system/synthesis/soc_system.qip
 set_location_assignment PIN_AJ4 -to ADC_CS_N
 set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to ADC_CS_N

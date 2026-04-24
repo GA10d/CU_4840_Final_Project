@@ -1285,6 +1285,7 @@ int fighter_renderer_init(fighter_renderer_t *renderer,
     };
     const char *explicit_fb_path = local_options.framebuffer_path;
     int initialized = 0;
+    int attempted_framebuffer = 0;
     int i;
   renderer->fb_fd = -1;
   if (local_options.prefer_framebuffer) {
@@ -1302,6 +1303,7 @@ int fighter_renderer_init(fighter_renderer_t *renderer,
       fb_path = (explicit_fb_path && explicit_fb_path[0] != '\0')
                     ? explicit_fb_path
                     : k_default_framebuffer_paths[i];
+      attempted_framebuffer = 1;
 
       renderer->fb_fd = open(fb_path, O_RDWR);
       if (renderer->fb_fd < 0) {
@@ -1383,6 +1385,10 @@ int fighter_renderer_init(fighter_renderer_t *renderer,
   } else if (!local_options.prefer_framebuffer) {
     snprintf(renderer->init_status, sizeof(renderer->init_status),
              "console renderer forced by option");
+  } else if (attempted_framebuffer && !explicit_fb_path) {
+    snprintf(renderer->init_status, sizeof(renderer->init_status),
+             "no Linux framebuffer device found; tried /dev/fb0, /dev/fb1, "
+             "/dev/graphics/fb0, and /dev/graphics/fb1");
   }
   }
 #else
