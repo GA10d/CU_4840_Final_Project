@@ -3,6 +3,7 @@
 #include "fighter_animation.h"
 
 #include <ctype.h>
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -1271,22 +1272,65 @@ int fighter_renderer_init(fighter_renderer_t *renderer,
   memset(renderer, 0, sizeof(*renderer));
   renderer->backend = FIGHTER_RENDERER_BACKEND_CONSOLE;
   renderer->console_interval_frames = local_options.console_interval_frames;
+  snprintf(renderer->init_status, sizeof(renderer->init_status),
+           "console renderer active");
 
 #ifdef __linux__
+  {
+    static const char *const k_default_framebuffer_paths[] = {
+        "/dev/fb0",
+        "/dev/fb1",
+        "/dev/graphics/fb0",
+        "/dev/graphics/fb1",
+    };
+    const char *explicit_fb_path = local_options.framebuffer_path;
+    int initialized = 0;
+    int i;
   renderer->fb_fd = -1;
   if (local_options.prefer_framebuffer) {
-    struct fb_fix_screeninfo fix_info;
-    struct fb_var_screeninfo var_info;
-    const char *fb_path = local_options.framebuffer_path
-                              ? local_options.framebuffer_path
-                              : "/dev/fb0";
+    for (i = 0; i < (int)(sizeof(k_default_framebuffer_paths) /
+                           sizeof(k_default_framebuffer_paths[0]));
+         ++i) {
+      struct fb_fix_screeninfo fix_info;
+      struct fb_var_screeninfo var_info;
+      const char *fb_path;
+      int open_errno;
 
-    renderer->fb_fd = open(fb_path, O_RDWR);
-    if (renderer->fb_fd >= 0 &&
-        ioctl(renderer->fb_fd, FBIOGET_FSCREENINFO, &fix_info) == 0 &&
-        ioctl(renderer->fb_fd, FBIOGET_VSCREENINFO, &var_info) == 0 &&
-        (var_info.bits_per_pixel == 16 || var_info.bits_per_pixel == 32)) {
-      int i;
+      if (explicit_fb_path && explicit_fb_path[0] != '\0' && i > 0) {
+        break;
+      }
+      fb_path = (explicit_fb_path && explicit_fb_path[0] != '\0')
+                    ? explicit_fb_path
+                    : k_default_framebuffer_paths[i];
+
+      renderer->fb_fd = open(fb_path, O_RDWR);
+      if (renderer->fb_fd < 0) {
+        open_errno = errno;
+        snprintf(renderer->init_status, sizeof(renderer->init_status),
+                 "framebuffer open failed on %s: %s", fb_path,
+                 strerror(open_errno));
+        continue;
+      }
+
+      if (ioctl(renderer->fb_fd, FBIOGET_FSCREENINFO, &fix_info) != 0 ||
+          ioctl(renderer->fb_fd, FBIOGET_VSCREENINFO, &var_info) != 0) {
+        open_errno = errno;
+        snprintf(renderer->init_status, sizeof(renderer->init_status),
+                 "framebuffer ioctl failed on %s: %s", fb_path,
+                 strerror(open_errno));
+        close(renderer->fb_fd);
+        renderer->fb_fd = -1;
+        continue;
+      }
+
+      if (var_info.bits_per_pixel != 16 && var_info.bits_per_pixel != 32) {
+        snprintf(renderer->init_status, sizeof(renderer->init_status),
+                 "framebuffer %s has unsupported bpp=%u", fb_path,
+                 (unsigned int)var_info.bits_per_pixel);
+        close(renderer->fb_fd);
+        renderer->fb_fd = -1;
+        continue;
+      }
 
       renderer->fb_width = (int)var_info.xres;
       renderer->fb_height = (int)var_info.yres;
@@ -1297,33 +1341,57 @@ int fighter_renderer_init(fighter_renderer_t *renderer,
       renderer->fb_data =
           mmap(NULL, renderer->fb_data_length, PROT_READ | PROT_WRITE, MAP_SHARED,
                renderer->fb_fd, 0);
-      if (renderer->fb_data != MAP_FAILED) {
-        renderer->fb_backbuffer = (unsigned char *)malloc(renderer->fb_data_length);
-        renderer->fb_backbuffer_length = renderer->fb_data_length;
-        if (renderer->fb_backbuffer) {
-          memset(renderer->fb_backbuffer, 0, renderer->fb_backbuffer_length);
-        } else {
-          renderer->fb_backbuffer_length = 0;
-        }
-        renderer->backend = FIGHTER_RENDERER_BACKEND_FRAMEBUFFER;
-
-        for (i = 0; i < 2; ++i) {
-          (void)fighter_rgb_image_load_ppm(&renderer->menu_frames[i],
-                                           fighter_renderer_menu_frame_ppm_path(i));
-          if (renderer->menu_frames[i].pixels) {
-            (void)fighter_fb_image_build_scaled(renderer, &renderer->menu_frames[i],
-                                                &renderer->menu_frame_cache[i]);
-          }
-        }
-      } else {
+      if (renderer->fb_data == MAP_FAILED) {
+        open_errno = errno;
         renderer->fb_data = NULL;
+        snprintf(renderer->init_status, sizeof(renderer->init_status),
+                 "framebuffer mmap failed on %s: %s", fb_path,
+                 strerror(open_errno));
         close(renderer->fb_fd);
         renderer->fb_fd = -1;
+        continue;
       }
-    } else if (renderer->fb_fd >= 0) {
-      close(renderer->fb_fd);
-      renderer->fb_fd = -1;
+
+      renderer->fb_backbuffer = (unsigned char *)malloc(renderer->fb_data_length);
+      renderer->fb_backbuffer_length = renderer->fb_data_length;
+      if (renderer->fb_backbuffer) {
+        memset(renderer->fb_backbuffer, 0, renderer->fb_backbuffer_length);
+      } else {
+        renderer->fb_backbuffer_length = 0;
+      }
+      renderer->backend = FIGHTER_RENDERER_BACKEND_FRAMEBUFFER;
+      snprintf(renderer->framebuffer_path_used,
+               sizeof(renderer->framebuffer_path_used), "%s", fb_path);
+      snprintf(renderer->init_status, sizeof(renderer->init_status),
+               "framebuffer active on %s (%dx%d %dbpp)", fb_path,
+               renderer->fb_width, renderer->fb_height, renderer->fb_bpp);
+      initialized = 1;
+      break;
     }
+  }
+
+  if (initialized) {
+    int i;
+    for (i = 0; i < 2; ++i) {
+      (void)fighter_rgb_image_load_ppm(&renderer->menu_frames[i],
+                                       fighter_renderer_menu_frame_ppm_path(i));
+      if (renderer->menu_frames[i].pixels) {
+        (void)fighter_fb_image_build_scaled(renderer, &renderer->menu_frames[i],
+                                            &renderer->menu_frame_cache[i]);
+      }
+    }
+  } else if (!local_options.prefer_framebuffer) {
+    snprintf(renderer->init_status, sizeof(renderer->init_status),
+             "console renderer forced by option");
+  }
+  }
+#else
+  if (local_options.prefer_framebuffer) {
+    snprintf(renderer->init_status, sizeof(renderer->init_status),
+             "framebuffer unavailable on this build target");
+  } else {
+    snprintf(renderer->init_status, sizeof(renderer->init_status),
+             "console renderer forced by option");
   }
 #endif
 
@@ -1394,4 +1462,19 @@ const char *fighter_renderer_backend_name(const fighter_renderer_t *renderer) {
 
   return renderer->backend == FIGHTER_RENDERER_BACKEND_FRAMEBUFFER ? "framebuffer"
                                                                    : "console";
+}
+
+const char *fighter_renderer_active_framebuffer_path(
+    const fighter_renderer_t *renderer) {
+  if (!renderer || renderer->framebuffer_path_used[0] == '\0') {
+    return "none";
+  }
+  return renderer->framebuffer_path_used;
+}
+
+const char *fighter_renderer_status_detail(const fighter_renderer_t *renderer) {
+  if (!renderer || renderer->init_status[0] == '\0') {
+    return "no renderer status";
+  }
+  return renderer->init_status;
 }

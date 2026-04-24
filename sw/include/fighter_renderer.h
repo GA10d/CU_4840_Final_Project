@@ -40,6 +40,8 @@ typedef struct {
 typedef struct {
   fighter_renderer_backend_t backend;
   int console_interval_frames;
+  char framebuffer_path_used[64];
+  char init_status[256];
 
   uint32_t last_console_frame;
   fighter_game_state_t last_console_state;
@@ -77,6 +79,9 @@ void fighter_renderer_draw(fighter_renderer_t *renderer,
                            const fighter_animation_system_t *anim_system);
 
 const char *fighter_renderer_backend_name(const fighter_renderer_t *renderer);
+const char *fighter_renderer_active_framebuffer_path(
+    const fighter_renderer_t *renderer);
+const char *fighter_renderer_status_detail(const fighter_renderer_t *renderer);
 
 const char *fighter_renderer_menu_frame_path(int frame_index);
 

@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <preferences>
  <debug showDebugMenu="0" />
- <systemtable filter="All Interfaces">
+ <systemtable>
   <columns>
    <connections preferredWidth="127" />
    <irq preferredWidth="34" />
   </columns>
  </systemtable>
- <library expandedCategories="Library,Project" />
- <window width="1280" height="1413" x="1280" y="27" />
+ <library expandedCategories="Project,Library" />
+ <window width="941" height="936" x="1016" y="105" />
 </preferences>

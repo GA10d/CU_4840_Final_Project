@@ -228,6 +228,14 @@ int main(int argc, char **argv) {
   printf("  input mode: %s\n",
          input_mode == FIGHTER_INPUT_MODE_USB ? "usb" : fighter_script_name(script_kind));
   printf("  renderer  : %s\n", fighter_renderer_backend_name(&renderer));
+  if (strcmp(fighter_renderer_backend_name(&renderer), "framebuffer") == 0) {
+    printf("  framebuffer: %s\n",
+           fighter_renderer_active_framebuffer_path(&renderer));
+  } else if (renderer_options.prefer_framebuffer) {
+    fprintf(stderr, "warning: framebuffer renderer unavailable, fallback to console\n");
+    fprintf(stderr, "         detail: %s\n",
+            fighter_renderer_status_detail(&renderer));
+  }
   printf("  audio     : %s\n", fighter_audio_backend_name(&audio_context));
 
   use_fixed_timestep =

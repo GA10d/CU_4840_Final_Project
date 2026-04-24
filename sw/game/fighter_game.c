@@ -1127,7 +1127,7 @@ void fighter_game_config_default(fighter_game_config_t *config) {
   config->player_height = 96;
   config->projectile_width = 28;
   config->projectile_height = 20;
-  config->projectile_speed = 6;
+  config->projectile_speed = 8;
   config->walk_speed = 3;
   config->jump_velocity = -14;
   config->gravity = 1;
@@ -1136,7 +1136,7 @@ void fighter_game_config_default(fighter_game_config_t *config) {
   config->menu_anim_period_frames = 20;
   config->game_over_anim_frames = 120;
   config->attack_cooldown_frames = 14;
-  config->dragon_punch_lift_velocity = -9;
+  config->dragon_punch_lift_velocity = -6;
   config->attack_visual_frames = 6;
   config->hurt_visual_frames = 8;
 }
