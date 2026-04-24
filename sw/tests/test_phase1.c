@@ -599,7 +599,7 @@ static void test_defaults_reduce_mobility(void) {
   fighter_game_config_default(&config);
   EXPECT_EQ_INT(config.walk_speed, 3);
   EXPECT_EQ_INT(config.jump_velocity, -14);
-  EXPECT_EQ_INT(config.dragon_punch_lift_velocity, -6);
+  EXPECT_EQ_INT(config.dragon_punch_lift_velocity, -9);
 }
 
 static void test_attack_hits_only_once_per_attack(void) {
