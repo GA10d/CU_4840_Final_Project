@@ -304,6 +304,10 @@
 					"strict" : false
 				},
 				{
+					"name" : "VGA_B[0]",
+					"strict" : false
+				},
+				{
 					"name" : "VGA_B[1]",
 					"strict" : false
 				},
@@ -377,6 +381,10 @@
 				},
 				{
 					"name" : "VGA_R[0]",
+					"strict" : false
+				},
+				{
+					"name" : "VGA_R[1]",
 					"strict" : false
 				},
 				{
@@ -825,10 +833,6 @@
 				},
 				{
 					"name" : "CLOCK_50",
-					"strict" : false
-				},
-				{
-					"name" : "KEY[0]",
 					"strict" : false
 				}
 			]

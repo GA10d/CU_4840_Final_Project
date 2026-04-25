@@ -99,7 +99,8 @@ static void unmap_region(void **map_base, size_t *map_length) {
 }
 
 static void print_usage(const char *argv0) {
-  printf("usage: %s [--mmio-addr HEX] [--bridge-addr HEX] [--no-write-test]\n",
+  printf("usage: %s [--mmio-addr HEX] [--bridge-addr HEX] [--no-write-test] "
+         "[--scan]\n",
          argv0);
 }
 
@@ -107,6 +108,8 @@ int main(int argc, char **argv) {
   off_t mmio_addr = k_default_vga_mmio_addr;
   off_t bridge_addr = k_default_bridge_reset_addr;
   int write_test = 1;
+  int scan = 0;
+  int mmio_addr_overridden = 0;
   int mem_fd;
   void *bridge_map = NULL;
   void *vga_map = NULL;
@@ -125,12 +128,16 @@ int main(int argc, char **argv) {
         fprintf(stderr, "invalid --mmio-addr\n");
         return 1;
       }
+      mmio_addr_overridden = 1;
     } else if (strcmp(argv[i], "--bridge-addr") == 0 && i + 1 < argc) {
       if (parse_address(argv[++i], bridge_addr, &bridge_addr) != 0) {
         fprintf(stderr, "invalid --bridge-addr\n");
         return 1;
       }
     } else if (strcmp(argv[i], "--no-write-test") == 0) {
+      write_test = 0;
+    } else if (strcmp(argv[i], "--scan") == 0) {
+      scan = 1;
       write_test = 0;
     } else if (strcmp(argv[i], "--help") == 0) {
       print_usage(argv[0]);
@@ -140,6 +147,10 @@ int main(int argc, char **argv) {
       print_usage(argv[0]);
       return 1;
     }
+  }
+
+  if (scan && !mmio_addr_overridden) {
+    mmio_addr = (off_t)0xFF200000;
   }
 
   mem_fd = open("/dev/mem", O_RDWR | O_SYNC);
@@ -177,6 +188,23 @@ int main(int argc, char **argv) {
   printf("bridge_after      : 0x%08" PRIX32 "\n", bridge_after);
   printf("ident             : 0x%08" PRIX32 " %s\n", ident,
          ident == k_vga_ident ? "(VPGA OK)" : "(unexpected)");
+
+  if (scan) {
+    uint32_t word;
+
+    printf("scan              : reading 0x%08lX..0x%08lX\n",
+           (unsigned long)mmio_addr, (unsigned long)mmio_addr + 0x0fffUL);
+    for (word = 0; word < 0x1000U / sizeof(uint32_t); ++word) {
+      uint32_t value = vga_regs[word];
+      if (value == k_vga_ident) {
+        printf("found VPGA        : 0x%08" PRIX32 "\n",
+               (uint32_t)mmio_addr + word * 4U);
+      } else if (word < 64U) {
+        printf("word[0x%03" PRIX32 "]      : 0x%08" PRIX32 "\n",
+               word * 4U, value);
+      }
+    }
+  }
 
   if (write_test) {
     vga_regs[FIGHTER_VGA_REG_GAME_STATE] = 1U;
