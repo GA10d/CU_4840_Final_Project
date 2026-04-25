@@ -51,13 +51,18 @@ module fighter_vga_renderer (
   logic        visible;
   logic        visible_d;
   logic        pixel_half_d;
+  logic        frame_write_enable;
+  logic [15:0] frame_write_addr;
+  logic [15:0] frame_read_addr;
   logic [31:0] read_word;
   logic [15:0] pixel_rgb565;
 
-  (* ramstyle = "M10K" *) logic [31:0] framebuffer[0:FB_WORD_COUNT-1];
-
   assign vga_clk = pixel_tick;
   assign vga_sync_n = 1'b0;
+  assign frame_write_enable =
+      avs_chipselect && avs_write && avs_address >= FB_WORD_OFFSET &&
+      avs_address < FB_WORD_OFFSET + FB_WORD_COUNT;
+  assign frame_write_addr = avs_address - FB_WORD_OFFSET;
 
   function automatic logic [7:0] expand5(input logic [4:0] value);
     expand5 = {value, value[4:2]};
@@ -67,9 +72,47 @@ module fighter_vga_renderer (
     expand6 = {value, value[5:4]};
   endfunction
 
-  function automatic int framebuffer_index(input logic [15:0] address);
-    framebuffer_index = address - FB_WORD_OFFSET;
-  endfunction
+  altsyncram #(
+      .operation_mode("DUAL_PORT"),
+      .ram_block_type("M10K"),
+      .intended_device_family("Cyclone V"),
+      .width_a(32),
+      .widthad_a(16),
+      .numwords_a(FB_WORD_COUNT),
+      .width_b(32),
+      .widthad_b(16),
+      .numwords_b(FB_WORD_COUNT),
+      .width_byteena_a(1),
+      .outdata_reg_b("CLOCK1"),
+      .address_reg_b("CLOCK1"),
+      .read_during_write_mode_mixed_ports("DONT_CARE"),
+      .power_up_uninitialized("FALSE"),
+      .lpm_type("altsyncram")
+  ) framebuffer_ram (
+      .clock0(clk_50),
+      .clock1(clk_50),
+      .clocken0(1'b1),
+      .clocken1(1'b1),
+      .clocken2(1'b1),
+      .clocken3(1'b1),
+      .aclr0(1'b0),
+      .aclr1(1'b0),
+      .addressstall_a(1'b0),
+      .addressstall_b(1'b0),
+      .address_a(frame_write_addr),
+      .address_b(frame_read_addr),
+      .data_a(avs_writedata),
+      .data_b(32'h00000000),
+      .wren_a(frame_write_enable),
+      .wren_b(1'b0),
+      .rden_a(1'b1),
+      .rden_b(1'b1),
+      .byteena_a(1'b1),
+      .byteena_b(1'b1),
+      .q_a(),
+      .q_b(read_word),
+      .eccstatus()
+  );
 
   always_comb begin
     if (avs_address == REG_IDENT) begin
@@ -84,16 +127,6 @@ module fighter_vga_renderer (
       avs_readdata = 32'd1;
     end else begin
       avs_readdata = 32'h00000000;
-    end
-  end
-
-  always_ff @(posedge clk_50) begin
-    int fb_index;
-
-    fb_index = framebuffer_index(avs_address);
-    if (avs_chipselect && avs_write &&
-        avs_address >= FB_WORD_OFFSET && fb_index < FB_WORD_COUNT) begin
-      framebuffer[fb_index] <= avs_writedata;
     end
   end
 
@@ -129,7 +162,7 @@ module fighter_vga_renderer (
     int read_index;
 
     if (!reset_n) begin
-      read_word <= 32'h00000000;
+      frame_read_addr <= 16'd0;
       visible_d <= 1'b0;
       pixel_half_d <= 1'b0;
     end else if (pixel_tick) begin
@@ -140,9 +173,9 @@ module fighter_vga_renderer (
       visible_d <= (h_count < H_VISIBLE) && (v_count < V_VISIBLE);
       pixel_half_d <= source_x[0];
       if (read_index >= 0 && read_index < FB_WORD_COUNT) begin
-        read_word <= framebuffer[read_index];
+        frame_read_addr <= read_index[15:0];
       end else begin
-        read_word <= 32'h00000000;
+        frame_read_addr <= 16'd0;
       end
     end
   end
