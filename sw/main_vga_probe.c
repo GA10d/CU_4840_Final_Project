@@ -32,6 +32,11 @@ enum {
       FIGHTER_VGA_REG_FRAME_WORD_OFFSET + FIGHTER_VGA_FRAME_WORD_COUNT
 };
 
+enum {
+  FIGHTER_VGA_CONTROL_SWAP_REQUEST = 1U << 1,
+  FIGHTER_VGA_CONTROL_SWAP_PENDING = 1U << 1
+};
+
 static const off_t k_default_bridge_reset_addr = (off_t)0xFFD0501C;
 static const off_t k_default_vga_mmio_addr = (off_t)0xFF240000;
 static const uint32_t k_vga_ident = 0x56504741U;
@@ -233,6 +238,7 @@ int main(int argc, char **argv) {
             (uint32_t)p0 | ((uint32_t)p1 << 16);
       }
     }
+    vga_regs[FIGHTER_VGA_REG_GAME_STATE] = FIGHTER_VGA_CONTROL_SWAP_REQUEST;
     printf("write_test        : wrote RGB565 gradient frame (%dx%d)\n",
            FIGHTER_VGA_FRAME_WIDTH, FIGHTER_VGA_FRAME_HEIGHT);
   }

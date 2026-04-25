@@ -65,6 +65,8 @@ typedef struct {
 
   fighter_rgb_image_t menu_frames[2];
   fighter_fb_image_t menu_frame_cache[2];
+  fighter_rgb_image_t background_image;
+  fighter_fb_image_t background_cache;
 
   int vga_mem_fd;
   void *vga_bridge_map;

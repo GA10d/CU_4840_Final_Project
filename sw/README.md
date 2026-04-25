@@ -109,6 +109,8 @@ VGA / framebuffer 输出：
 
 `input_demo` 会先尝试 FPGA VGA MMIO：默认地址是 `0xFF240000`，对应硬件里的 `fighter_vga_0`。如果 MMIO 探测不到，会继续尝试 Linux framebuffer；如果都不可用，会自动打印 console 渲染状态，方便继续调试逻辑。
 
+音频 MMIO 默认地址是 `0xFF200000`，对应硬件里的 `fighter_audio_0`。如果你临时改过 Platform Designer 地址，可以用 `FIGHTER_AUDIO_MMIO_ADDR=0x...` 覆盖。
+
 `phase1_demo` 也走同一套 VGA/MMIO 渲染后端，适合跑固定脚本或不接键盘时做演示：
 
 ```bash

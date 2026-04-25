@@ -103,6 +103,9 @@ static int fighter_rgb_image_load_ppm(fighter_rgb_image_t *image,
 static int fighter_fb_image_build_scaled(fighter_renderer_t *renderer,
                                          const fighter_rgb_image_t *source,
                                          fighter_fb_image_t *scaled);
+static int fighter_fb_image_build_cover(fighter_renderer_t *renderer,
+                                        const fighter_rgb_image_t *source,
+                                        fighter_fb_image_t *scaled);
 #endif
 
 const char *fighter_renderer_menu_frame_path(int frame_index) {
@@ -222,12 +225,42 @@ static int fighter_renderer_enable_fpga_bridges(fighter_renderer_t *renderer) {
   return 0;
 }
 
-static void fighter_renderer_load_menu_assets(fighter_renderer_t *renderer) {
+static int fighter_renderer_load_asset_ppm(fighter_rgb_image_t *image,
+                                           const char *relative_path) {
   static const char *const k_asset_roots[] = {
       NULL,
       "/root/game_assets",
       "../game_assets",
   };
+  const char *env_root = getenv("FIGHTER_ASSET_ROOT");
+  int root_index;
+
+  if (!image || !relative_path) {
+    return -1;
+  }
+
+  for (root_index = 0;
+       root_index < (int)(sizeof(k_asset_roots) / sizeof(k_asset_roots[0]));
+       ++root_index) {
+    const char *root = root_index == 0 ? env_root : k_asset_roots[root_index];
+    char path[512];
+
+    if (!root || root[0] == '\0') {
+      continue;
+    }
+    if (snprintf(path, sizeof(path), "%s/%s", root, relative_path) >=
+        (int)sizeof(path)) {
+      continue;
+    }
+    if (fighter_rgb_image_load_ppm(image, path) == 0) {
+      return 0;
+    }
+  }
+
+  return -1;
+}
+
+static void fighter_renderer_load_assets(fighter_renderer_t *renderer) {
   int i;
 
   if (!renderer) {
@@ -235,26 +268,11 @@ static void fighter_renderer_load_menu_assets(fighter_renderer_t *renderer) {
   }
 
   for (i = 0; i < 2; ++i) {
-    const char *env_root = getenv("FIGHTER_ASSET_ROOT");
-    int root_index;
+    char relative_path[64];
 
-    for (root_index = 0;
-         root_index < (int)(sizeof(k_asset_roots) / sizeof(k_asset_roots[0]));
-         ++root_index) {
-      const char *root = root_index == 0 ? env_root : k_asset_roots[root_index];
-      char path[512];
-
-      if (!root || root[0] == '\0') {
-        continue;
-      }
-      if (snprintf(path, sizeof(path), "%s/ui/menu/menu_frame_%d.ppm",
-                   root, i) >= (int)sizeof(path)) {
-        continue;
-      }
-      if (fighter_rgb_image_load_ppm(&renderer->menu_frames[i], path) == 0) {
-        break;
-      }
-    }
+    snprintf(relative_path, sizeof(relative_path), "ui/menu/menu_frame_%d.ppm", i);
+    (void)fighter_renderer_load_asset_ppm(&renderer->menu_frames[i],
+                                          relative_path);
     if (!renderer->menu_frames[i].pixels) {
       (void)fighter_rgb_image_load_ppm(&renderer->menu_frames[i],
                                        fighter_renderer_menu_frame_ppm_path(i));
@@ -263,6 +281,12 @@ static void fighter_renderer_load_menu_assets(fighter_renderer_t *renderer) {
       (void)fighter_fb_image_build_scaled(renderer, &renderer->menu_frames[i],
                                           &renderer->menu_frame_cache[i]);
     }
+  }
+
+  if (fighter_renderer_load_asset_ppm(&renderer->background_image,
+                                      "background/background.ppm") == 0) {
+    (void)fighter_fb_image_build_cover(renderer, &renderer->background_image,
+                                       &renderer->background_cache);
   }
 }
 
@@ -399,7 +423,7 @@ static int fighter_renderer_init_mmio(fighter_renderer_t *renderer) {
     return -1;
   }
 
-  fighter_renderer_load_menu_assets(renderer);
+  fighter_renderer_load_assets(renderer);
   renderer->backend = FIGHTER_RENDERER_BACKEND_MMIO;
   snprintf(renderer->init_status, sizeof(renderer->init_status),
            "VGA MMIO framebuffer active at 0x%08lX (%dx%d RGB565)",
@@ -412,9 +436,17 @@ static void fighter_renderer_flush_mmio_frame(fighter_renderer_t *renderer) {
   volatile uint32_t *dst;
   int word_count;
   int i;
+  int wait_count;
 
   if (!renderer || !renderer->vga_regs || !renderer->fb_backbuffer) {
     return;
+  }
+
+  for (wait_count = 0; wait_count < 10000000; ++wait_count) {
+    if ((renderer->vga_regs[FIGHTER_MMIO_REG_GAME_STATE] &
+         FIGHTER_MMIO_CONTROL_SWAP_PENDING) == 0U) {
+      break;
+    }
   }
 
   src = renderer->fb_backbuffer;
@@ -429,6 +461,9 @@ static void fighter_renderer_flush_mmio_frame(fighter_renderer_t *renderer) {
         ((uint32_t)src[(size_t)i * 4U + 3U] << 8);
     dst[i] = lo | (hi << 16);
   }
+
+  renderer->vga_regs[FIGHTER_MMIO_REG_GAME_STATE] =
+      FIGHTER_MMIO_CONTROL_SWAP_REQUEST;
 }
 
 static void fighter_renderer_draw_mmio(
@@ -1044,6 +1079,84 @@ static int fighter_fb_image_build_scaled(fighter_renderer_t *renderer,
   return 0;
 }
 
+static int fighter_fb_image_build_cover(fighter_renderer_t *renderer,
+                                        const fighter_rgb_image_t *source,
+                                        fighter_fb_image_t *scaled) {
+  int bytes_per_pixel;
+  int crop_x;
+  int crop_y;
+  int crop_w;
+  int crop_h;
+  int y;
+
+  if (!renderer || !source || !source->pixels || !scaled ||
+      renderer->fb_width <= 0 || renderer->fb_height <= 0 ||
+      renderer->fb_stride <= 0) {
+    return -1;
+  }
+
+  fighter_fb_image_reset(scaled);
+
+  bytes_per_pixel = renderer->fb_bpp / 8;
+  if (bytes_per_pixel <= 0) {
+    return -1;
+  }
+
+  scaled->data_length = (unsigned long)(renderer->fb_stride * renderer->fb_height);
+  scaled->pixels = (unsigned char *)malloc(scaled->data_length);
+  if (!scaled->pixels) {
+    fighter_fb_image_reset(scaled);
+    return -1;
+  }
+
+  scaled->width = renderer->fb_width;
+  scaled->height = renderer->fb_height;
+  scaled->stride = renderer->fb_stride;
+  memset(scaled->pixels, 0, scaled->data_length);
+
+  crop_x = 0;
+  crop_y = 0;
+  crop_w = source->width;
+  crop_h = source->height;
+
+  if ((long long)source->width * renderer->fb_height >
+      (long long)renderer->fb_width * source->height) {
+    crop_w = (int)(((long long)source->height * renderer->fb_width) /
+                   renderer->fb_height);
+    if (crop_w <= 0) {
+      crop_w = 1;
+    }
+    crop_x = (source->width - crop_w) / 2;
+  } else {
+    crop_h = (int)(((long long)source->width * renderer->fb_height) /
+                   renderer->fb_width);
+    if (crop_h <= 0) {
+      crop_h = 1;
+    }
+    crop_y = (source->height - crop_h) / 2;
+  }
+
+  for (y = 0; y < renderer->fb_height; ++y) {
+    int src_y = crop_y + (int)(((long long)y * crop_h) / renderer->fb_height);
+    const unsigned char *src_row =
+        source->pixels + (size_t)src_y * (size_t)source->width * 3U;
+    int x;
+
+    for (x = 0; x < renderer->fb_width; ++x) {
+      int src_x = crop_x + (int)(((long long)x * crop_w) / renderer->fb_width);
+      const unsigned char *src_pixel = src_row + (size_t)src_x * 3U;
+      unsigned int color =
+          fighter_fb_color(renderer, src_pixel[0], src_pixel[1], src_pixel[2]);
+      unsigned char *dst =
+          scaled->pixels + (size_t)y * (size_t)scaled->stride +
+          (size_t)x * (size_t)bytes_per_pixel;
+      fighter_fb_store_color(renderer, dst, color);
+    }
+  }
+
+  return 0;
+}
+
 static void fighter_fb_draw_cached_image(fighter_renderer_t *renderer,
                                          const fighter_fb_image_t *image) {
   if (!renderer || !image || !image->pixels) {
@@ -1423,12 +1536,15 @@ static void fighter_renderer_draw_playfield_fb(
   bar_bg = fighter_fb_color(renderer, 40, 40, 40);
   bar_border = fighter_fb_color(renderer, 230, 230, 230);
 
-  fighter_fb_clear(renderer, sky_color);
-
-  floor_y = fighter_scale_axis(game->config.floor_y, renderer->fb_height,
-                               game->config.screen_height);
-  fighter_fb_fill_rect(renderer, 0, floor_y, renderer->fb_width,
-                       renderer->fb_height - floor_y, floor_color);
+  if (renderer->background_cache.pixels) {
+    fighter_fb_draw_cached_image(renderer, &renderer->background_cache);
+  } else {
+    fighter_fb_clear(renderer, sky_color);
+    floor_y = fighter_scale_axis(game->config.floor_y, renderer->fb_height,
+                                 game->config.screen_height);
+    fighter_fb_fill_rect(renderer, 0, floor_y, renderer->fb_width,
+                         renderer->fb_height - floor_y, floor_color);
+  }
 
   if (anim_system) {
     fighter_renderer_draw_player_fb(renderer, game, anim_system, 0);
@@ -1727,7 +1843,7 @@ int fighter_renderer_init(fighter_renderer_t *renderer,
   }
 
   if (initialized) {
-    fighter_renderer_load_menu_assets(renderer);
+    fighter_renderer_load_assets(renderer);
   } else if (!local_options.prefer_framebuffer) {
     snprintf(renderer->init_status, sizeof(renderer->init_status),
              "console renderer forced by option");
@@ -1764,6 +1880,8 @@ void fighter_renderer_close(fighter_renderer_t *renderer) {
     fighter_rgb_image_reset(&renderer->menu_frames[i]);
     fighter_fb_image_reset(&renderer->menu_frame_cache[i]);
   }
+  fighter_rgb_image_reset(&renderer->background_image);
+  fighter_fb_image_reset(&renderer->background_cache);
 
   free(renderer->fb_backbuffer);
   renderer->fb_backbuffer = NULL;

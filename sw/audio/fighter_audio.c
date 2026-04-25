@@ -69,7 +69,7 @@ typedef struct {
 } fighter_audio_mmio_state_t;
 
 static const off_t k_fighter_audio_default_bridge_reset_addr = (off_t)0xFFD0501C;
-static const off_t k_fighter_audio_default_mmio_addr = (off_t)0xFF203040;
+static const off_t k_fighter_audio_default_mmio_addr = (off_t)0xFF200000;
 
 static void fighter_audio_set_status_detail(fighter_audio_context_t *context,
                                             const char *fmt,

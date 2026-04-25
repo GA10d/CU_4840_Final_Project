@@ -43,6 +43,7 @@ module fighter_vga_renderer (
   localparam int REG_STRIDE  = 3;
   localparam int REG_IDENT   = 31;
 
+  localparam logic [31:0] CONTROL_SWAP_REQUEST = 32'h00000002;
   localparam logic [31:0] IDENT = 32'h56504741; // "VPGA"
 
   logic        pixel_tick;
@@ -51,9 +52,15 @@ module fighter_vga_renderer (
   logic        visible;
   logic        visible_d;
   logic        pixel_half_d;
+  logic        display_buffer;
+  logic        swap_pending;
+  logic        swap_at_vblank;
   logic        frame_write_enable;
+  logic        frame_write_buffer;
   logic [15:0] frame_write_addr;
   logic [15:0] frame_read_addr;
+  logic [31:0] read_word0;
+  logic [31:0] read_word1;
   logic [31:0] read_word;
   logic [15:0] pixel_rgb565;
 
@@ -63,6 +70,9 @@ module fighter_vga_renderer (
       avs_chipselect && avs_write && avs_address >= FB_WORD_OFFSET &&
       avs_address < FB_WORD_OFFSET + FB_WORD_COUNT;
   assign frame_write_addr = avs_address - FB_WORD_OFFSET;
+  assign frame_write_buffer = ~display_buffer;
+  assign swap_at_vblank = pixel_tick && h_count == 10'd0 && v_count == V_VISIBLE;
+  assign read_word = display_buffer ? read_word1 : read_word0;
 
   function automatic logic [7:0] expand5(input logic [4:0] value);
     expand5 = {value, value[4:2]};
@@ -83,12 +93,12 @@ module fighter_vga_renderer (
       .widthad_b(16),
       .numwords_b(FB_WORD_COUNT),
       .width_byteena_a(1),
-      .outdata_reg_b("CLOCK1"),
+      .outdata_reg_b("UNREGISTERED"),
       .address_reg_b("CLOCK1"),
-      .read_during_write_mode_mixed_ports("DONT_CARE"),
+      .read_during_write_mode_mixed_ports("OLD_DATA"),
       .power_up_uninitialized("FALSE"),
       .lpm_type("altsyncram")
-  ) framebuffer_ram (
+  ) framebuffer_ram0 (
       .clock0(clk_50),
       .clock1(clk_50),
       .clocken0(1'b1),
@@ -103,14 +113,56 @@ module fighter_vga_renderer (
       .address_b(frame_read_addr),
       .data_a(avs_writedata),
       .data_b(32'h00000000),
-      .wren_a(frame_write_enable),
+      .wren_a(frame_write_enable && !frame_write_buffer),
       .wren_b(1'b0),
       .rden_a(1'b1),
       .rden_b(1'b1),
       .byteena_a(1'b1),
       .byteena_b(1'b1),
       .q_a(),
-      .q_b(read_word),
+      .q_b(read_word0),
+      .eccstatus()
+  );
+
+  altsyncram #(
+      .operation_mode("DUAL_PORT"),
+      .ram_block_type("M10K"),
+      .intended_device_family("Cyclone V"),
+      .width_a(32),
+      .widthad_a(16),
+      .numwords_a(FB_WORD_COUNT),
+      .width_b(32),
+      .widthad_b(16),
+      .numwords_b(FB_WORD_COUNT),
+      .width_byteena_a(1),
+      .outdata_reg_b("UNREGISTERED"),
+      .address_reg_b("CLOCK1"),
+      .read_during_write_mode_mixed_ports("OLD_DATA"),
+      .power_up_uninitialized("FALSE"),
+      .lpm_type("altsyncram")
+  ) framebuffer_ram1 (
+      .clock0(clk_50),
+      .clock1(clk_50),
+      .clocken0(1'b1),
+      .clocken1(1'b1),
+      .clocken2(1'b1),
+      .clocken3(1'b1),
+      .aclr0(1'b0),
+      .aclr1(1'b0),
+      .addressstall_a(1'b0),
+      .addressstall_b(1'b0),
+      .address_a(frame_write_addr),
+      .address_b(frame_read_addr),
+      .data_a(avs_writedata),
+      .data_b(32'h00000000),
+      .wren_a(frame_write_enable && frame_write_buffer),
+      .wren_b(1'b0),
+      .rden_a(1'b1),
+      .rden_b(1'b1),
+      .byteena_a(1'b1),
+      .byteena_b(1'b1),
+      .q_a(),
+      .q_b(read_word1),
       .eccstatus()
   );
 
@@ -124,9 +176,29 @@ module fighter_vga_renderer (
     end else if (avs_address == REG_STRIDE) begin
       avs_readdata = FB_WIDTH * 2;
     end else if (avs_address == REG_CONTROL) begin
-      avs_readdata = 32'd1;
+      avs_readdata = 32'd1 |
+                     (swap_pending ? 32'h00000002 : 32'h00000000) |
+                     (display_buffer ? 32'h00000100 : 32'h00000000) |
+                     (frame_write_buffer ? 32'h00000200 : 32'h00000000);
     end else begin
       avs_readdata = 32'h00000000;
+    end
+  end
+
+  always_ff @(posedge clk_50 or negedge reset_n) begin
+    if (!reset_n) begin
+      display_buffer <= 1'b0;
+      swap_pending <= 1'b0;
+    end else begin
+      if (avs_chipselect && avs_write && avs_address == REG_CONTROL &&
+          (avs_writedata & CONTROL_SWAP_REQUEST) != 32'd0) begin
+        swap_pending <= 1'b1;
+      end
+
+      if (swap_pending && swap_at_vblank) begin
+        display_buffer <= ~display_buffer;
+        swap_pending <= 1'b0;
+      end
     end
   end
 
