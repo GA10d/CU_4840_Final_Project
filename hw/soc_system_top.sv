@@ -190,10 +190,6 @@ module soc_system_top(
 
    wire audio_init_done;
    wire audio_init_error;
-   wire vga_reset_n;
-
-   assign vga_reset_n = KEY[0];
-
    soc_system soc_system0(
      .clk_clk                      ( CLOCK_50 ),
      .reset_reset_n                ( 1'b1 ),
@@ -281,7 +277,16 @@ module soc_system_top(
      .fighter_audio_0_fighter_audio_audio_i2c_sclk   ( FPGA_I2C_SCLK ),
      .fighter_audio_0_fighter_audio_audio_i2c_sdat   ( FPGA_I2C_SDAT ),
      .fighter_audio_0_fighter_audio_audio_init_done  ( audio_init_done ),
-     .fighter_audio_0_fighter_audio_audio_init_error ( audio_init_error )
+     .fighter_audio_0_fighter_audio_audio_init_error ( audio_init_error ),
+
+     .fighter_vga_0_vga_vga_r       ( VGA_R ),
+     .fighter_vga_0_vga_vga_g       ( VGA_G ),
+     .fighter_vga_0_vga_vga_b       ( VGA_B ),
+     .fighter_vga_0_vga_vga_hs      ( VGA_HS ),
+     .fighter_vga_0_vga_vga_vs      ( VGA_VS ),
+     .fighter_vga_0_vga_vga_clk     ( VGA_CLK ),
+     .fighter_vga_0_vga_vga_blank_n ( VGA_BLANK_N ),
+     .fighter_vga_0_vga_vga_sync_n  ( VGA_SYNC_N )
    );
 
    // The following quiet the "no driver" warnings for output
@@ -319,24 +324,5 @@ module soc_system_top(
    assign PS2_DAT2 = SW[1] ? SW[0] : 1'bZ;
 
    assign TD_RESET_N = SW[0];
-
-   fighter_vga_renderer fighter_vga0(
-     .clk_50      ( CLOCK_50 ),
-     .reset_n     ( vga_reset_n ),
-     .avs_chipselect ( 1'b0 ),
-     .avs_read       ( 1'b0 ),
-     .avs_write      ( 1'b0 ),
-     .avs_address    ( 5'd0 ),
-     .avs_writedata  ( 32'd0 ),
-     .avs_readdata   ( ),
-     .vga_r       ( VGA_R ),
-     .vga_g       ( VGA_G ),
-     .vga_b       ( VGA_B ),
-     .vga_hs      ( VGA_HS ),
-     .vga_vs      ( VGA_VS ),
-     .vga_clk     ( VGA_CLK ),
-     .vga_blank_n ( VGA_BLANK_N ),
-     .vga_sync_n  ( VGA_SYNC_N )
-   );
 
 endmodule

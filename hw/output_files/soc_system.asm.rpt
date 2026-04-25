@@ -1,5 +1,5 @@
 Assembler report for soc_system
-Thu Apr 23 14:32:46 2026
+Fri Apr 24 19:22:03 2026
 Quartus Prime Version 21.1.0 Build 842 10/21/2021 SJ Lite Edition
 
 
@@ -38,7 +38,7 @@ https://fpgasoftware.intel.com/eula.
 +---------------------------------------------------------------+
 ; Assembler Summary                                             ;
 +-----------------------+---------------------------------------+
-; Assembler Status      ; Successful - Thu Apr 23 14:32:46 2026 ;
+; Assembler Status      ; Successful - Fri Apr 24 19:22:03 2026 ;
 ; Revision Name         ; soc_system                            ;
 ; Top-level Entity Name ; soc_system_top                        ;
 ; Family                ; Cyclone V                             ;
@@ -53,13 +53,13 @@ https://fpgasoftware.intel.com/eula.
 +--------+---------+---------------+
 
 
-+------------------------------------------------------------------------------------------------------+
-; Assembler Generated Files                                                                            ;
-+------------------------------------------------------------------------------------------------------+
-; File Name                                                                                            ;
-+------------------------------------------------------------------------------------------------------+
-; /homes/user/stud/fall25/jy3557/Desktop/Embedded_System/sound/renderer/hw/output_files/soc_system.sof ;
-+------------------------------------------------------------------------------------------------------+
++-------------------------------------------------------------------------------+
+; Assembler Generated Files                                                     ;
++-------------------------------------------------------------------------------+
+; File Name                                                                     ;
++-------------------------------------------------------------------------------+
+; /homes/user/stud/fall25/jy3557/Desktop/4840_SV/hw/output_files/soc_system.sof ;
++-------------------------------------------------------------------------------+
 
 
 +------------------------------------------+
@@ -67,8 +67,8 @@ https://fpgasoftware.intel.com/eula.
 +----------------+-------------------------+
 ; Option         ; Setting                 ;
 +----------------+-------------------------+
-; JTAG usercode  ; 0x00C953C3              ;
-; Checksum       ; 0x00C953C3              ;
+; JTAG usercode  ; 0x00E02E02              ;
+; Checksum       ; 0x00E02E02              ;
 +----------------+-------------------------+
 
 
@@ -78,15 +78,13 @@ https://fpgasoftware.intel.com/eula.
 Info: *******************************************************************
 Info: Running Quartus Prime Assembler
     Info: Version 21.1.0 Build 842 10/21/2021 SJ Lite Edition
-    Info: Processing started: Thu Apr 23 14:32:35 2026
+    Info: Processing started: Fri Apr 24 19:21:52 2026
 Info: Command: quartus_asm --read_settings_files=off --write_settings_files=off soc_system -c soc_system
 Info (115030): Assembler is generating device programming files
-Warning (11713): The configuration of the Hard Processor Subsystem (HPS) within this design has changed.
-The Preloader software that initializes the HPS requires an update.
-Using hps_isw_handoff/soc_system_hps_0/, run the Preloader Support Package Generator to update your Preloader software
-Info: Quartus Prime Assembler was successful. 0 errors, 1 warning
-    Info: Peak virtual memory: 813 megabytes
-    Info: Processing ended: Thu Apr 23 14:32:46 2026
+Info (11878): Hard Processor Subsystem configuration has not changed and a Preloader software update is not required
+Info: Quartus Prime Assembler was successful. 0 errors, 0 warnings
+    Info: Peak virtual memory: 817 megabytes
+    Info: Processing ended: Fri Apr 24 19:22:03 2026
     Info: Elapsed time: 00:00:11
     Info: Total CPU time (on all processors): 00:00:05
 

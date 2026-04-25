@@ -1,6 +1,24 @@
 
 module soc_system (
 	clk_clk,
+	fighter_audio_0_fighter_audio_audio_adcdat,
+	fighter_audio_0_fighter_audio_audio_adclrck,
+	fighter_audio_0_fighter_audio_audio_bclk,
+	fighter_audio_0_fighter_audio_audio_dacdat,
+	fighter_audio_0_fighter_audio_aud_daclrck,
+	fighter_audio_0_fighter_audio_audio_xck,
+	fighter_audio_0_fighter_audio_audio_init_done,
+	fighter_audio_0_fighter_audio_audio_init_error,
+	fighter_audio_0_fighter_audio_audio_i2c_sclk,
+	fighter_audio_0_fighter_audio_audio_i2c_sdat,
+	fighter_vga_0_vga_vga_r,
+	fighter_vga_0_vga_vga_g,
+	fighter_vga_0_vga_vga_b,
+	fighter_vga_0_vga_vga_hs,
+	fighter_vga_0_vga_vga_vs,
+	fighter_vga_0_vga_vga_clk,
+	fighter_vga_0_vga_vga_blank_n,
+	fighter_vga_0_vga_vga_sync_n,
 	hps_hps_io_emac1_inst_TX_CLK,
 	hps_hps_io_emac1_inst_TXD0,
 	hps_hps_io_emac1_inst_TXD1,
@@ -66,19 +84,27 @@ module soc_system (
 	hps_ddr3_mem_odt,
 	hps_ddr3_mem_dm,
 	hps_ddr3_oct_rzqin,
-	reset_reset_n,
-	fighter_audio_0_fighter_audio_audio_adcdat,
-	fighter_audio_0_fighter_audio_audio_adclrck,
-	fighter_audio_0_fighter_audio_audio_bclk,
-	fighter_audio_0_fighter_audio_audio_dacdat,
-	fighter_audio_0_fighter_audio_aud_daclrck,
-	fighter_audio_0_fighter_audio_audio_xck,
-	fighter_audio_0_fighter_audio_audio_init_done,
-	fighter_audio_0_fighter_audio_audio_init_error,
-	fighter_audio_0_fighter_audio_audio_i2c_sclk,
-	fighter_audio_0_fighter_audio_audio_i2c_sdat);	
+	reset_reset_n);	
 
 	input		clk_clk;
+	input		fighter_audio_0_fighter_audio_audio_adcdat;
+	output		fighter_audio_0_fighter_audio_audio_adclrck;
+	output		fighter_audio_0_fighter_audio_audio_bclk;
+	output		fighter_audio_0_fighter_audio_audio_dacdat;
+	output		fighter_audio_0_fighter_audio_aud_daclrck;
+	output		fighter_audio_0_fighter_audio_audio_xck;
+	output		fighter_audio_0_fighter_audio_audio_init_done;
+	output		fighter_audio_0_fighter_audio_audio_init_error;
+	inout		fighter_audio_0_fighter_audio_audio_i2c_sclk;
+	inout		fighter_audio_0_fighter_audio_audio_i2c_sdat;
+	output	[7:0]	fighter_vga_0_vga_vga_r;
+	output	[7:0]	fighter_vga_0_vga_vga_g;
+	output	[7:0]	fighter_vga_0_vga_vga_b;
+	output		fighter_vga_0_vga_vga_hs;
+	output		fighter_vga_0_vga_vga_vs;
+	output		fighter_vga_0_vga_vga_clk;
+	output		fighter_vga_0_vga_vga_blank_n;
+	output		fighter_vga_0_vga_vga_sync_n;
 	output		hps_hps_io_emac1_inst_TX_CLK;
 	output		hps_hps_io_emac1_inst_TXD0;
 	output		hps_hps_io_emac1_inst_TXD1;
@@ -145,14 +171,4 @@ module soc_system (
 	output	[3:0]	hps_ddr3_mem_dm;
 	input		hps_ddr3_oct_rzqin;
 	input		reset_reset_n;
-	input		fighter_audio_0_fighter_audio_audio_adcdat;
-	output		fighter_audio_0_fighter_audio_audio_adclrck;
-	output		fighter_audio_0_fighter_audio_audio_bclk;
-	output		fighter_audio_0_fighter_audio_audio_dacdat;
-	output		fighter_audio_0_fighter_audio_aud_daclrck;
-	output		fighter_audio_0_fighter_audio_audio_xck;
-	output		fighter_audio_0_fighter_audio_audio_init_done;
-	output		fighter_audio_0_fighter_audio_audio_init_error;
-	inout		fighter_audio_0_fighter_audio_audio_i2c_sclk;
-	inout		fighter_audio_0_fighter_audio_audio_i2c_sdat;
 endmodule

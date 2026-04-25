@@ -1,6 +1,24 @@
 	component soc_system is
 		port (
 			clk_clk                                        : in    std_logic                     := 'X';             -- clk
+			fighter_audio_0_fighter_audio_audio_adcdat     : in    std_logic                     := 'X';             -- audio_adcdat
+			fighter_audio_0_fighter_audio_audio_adclrck    : out   std_logic;                                        -- audio_adclrck
+			fighter_audio_0_fighter_audio_audio_bclk       : out   std_logic;                                        -- audio_bclk
+			fighter_audio_0_fighter_audio_audio_dacdat     : out   std_logic;                                        -- audio_dacdat
+			fighter_audio_0_fighter_audio_aud_daclrck      : out   std_logic;                                        -- aud_daclrck
+			fighter_audio_0_fighter_audio_audio_xck        : out   std_logic;                                        -- audio_xck
+			fighter_audio_0_fighter_audio_audio_init_done  : out   std_logic;                                        -- audio_init_done
+			fighter_audio_0_fighter_audio_audio_init_error : out   std_logic;                                        -- audio_init_error
+			fighter_audio_0_fighter_audio_audio_i2c_sclk   : inout std_logic                     := 'X';             -- audio_i2c_sclk
+			fighter_audio_0_fighter_audio_audio_i2c_sdat   : inout std_logic                     := 'X';             -- audio_i2c_sdat
+			fighter_vga_0_vga_vga_r                        : out   std_logic_vector(7 downto 0);                     -- vga_r
+			fighter_vga_0_vga_vga_g                        : out   std_logic_vector(7 downto 0);                     -- vga_g
+			fighter_vga_0_vga_vga_b                        : out   std_logic_vector(7 downto 0);                     -- vga_b
+			fighter_vga_0_vga_vga_hs                       : out   std_logic;                                        -- vga_hs
+			fighter_vga_0_vga_vga_vs                       : out   std_logic;                                        -- vga_vs
+			fighter_vga_0_vga_vga_clk                      : out   std_logic;                                        -- vga_clk
+			fighter_vga_0_vga_vga_blank_n                  : out   std_logic;                                        -- vga_blank_n
+			fighter_vga_0_vga_vga_sync_n                   : out   std_logic;                                        -- vga_sync_n
 			hps_hps_io_emac1_inst_TX_CLK                   : out   std_logic;                                        -- hps_io_emac1_inst_TX_CLK
 			hps_hps_io_emac1_inst_TXD0                     : out   std_logic;                                        -- hps_io_emac1_inst_TXD0
 			hps_hps_io_emac1_inst_TXD1                     : out   std_logic;                                        -- hps_io_emac1_inst_TXD1
@@ -66,23 +84,31 @@
 			hps_ddr3_mem_odt                               : out   std_logic;                                        -- mem_odt
 			hps_ddr3_mem_dm                                : out   std_logic_vector(3 downto 0);                     -- mem_dm
 			hps_ddr3_oct_rzqin                             : in    std_logic                     := 'X';             -- oct_rzqin
-			reset_reset_n                                  : in    std_logic                     := 'X';             -- reset_n
-			fighter_audio_0_fighter_audio_audio_adcdat     : in    std_logic                     := 'X';             -- audio_adcdat
-			fighter_audio_0_fighter_audio_audio_adclrck    : out   std_logic;                                        -- audio_adclrck
-			fighter_audio_0_fighter_audio_audio_bclk       : out   std_logic;                                        -- audio_bclk
-			fighter_audio_0_fighter_audio_audio_dacdat     : out   std_logic;                                        -- audio_dacdat
-			fighter_audio_0_fighter_audio_aud_daclrck      : out   std_logic;                                        -- aud_daclrck
-			fighter_audio_0_fighter_audio_audio_xck        : out   std_logic;                                        -- audio_xck
-			fighter_audio_0_fighter_audio_audio_init_done  : out   std_logic;                                        -- audio_init_done
-			fighter_audio_0_fighter_audio_audio_init_error : out   std_logic;                                        -- audio_init_error
-			fighter_audio_0_fighter_audio_audio_i2c_sclk   : inout std_logic                     := 'X';             -- audio_i2c_sclk
-			fighter_audio_0_fighter_audio_audio_i2c_sdat   : inout std_logic                     := 'X'              -- audio_i2c_sdat
+			reset_reset_n                                  : in    std_logic                     := 'X'              -- reset_n
 		);
 	end component soc_system;
 
 	u0 : component soc_system
 		port map (
 			clk_clk                                        => CONNECTED_TO_clk_clk,                                        --                           clk.clk
+			fighter_audio_0_fighter_audio_audio_adcdat     => CONNECTED_TO_fighter_audio_0_fighter_audio_audio_adcdat,     -- fighter_audio_0_fighter_audio.audio_adcdat
+			fighter_audio_0_fighter_audio_audio_adclrck    => CONNECTED_TO_fighter_audio_0_fighter_audio_audio_adclrck,    --                              .audio_adclrck
+			fighter_audio_0_fighter_audio_audio_bclk       => CONNECTED_TO_fighter_audio_0_fighter_audio_audio_bclk,       --                              .audio_bclk
+			fighter_audio_0_fighter_audio_audio_dacdat     => CONNECTED_TO_fighter_audio_0_fighter_audio_audio_dacdat,     --                              .audio_dacdat
+			fighter_audio_0_fighter_audio_aud_daclrck      => CONNECTED_TO_fighter_audio_0_fighter_audio_aud_daclrck,      --                              .aud_daclrck
+			fighter_audio_0_fighter_audio_audio_xck        => CONNECTED_TO_fighter_audio_0_fighter_audio_audio_xck,        --                              .audio_xck
+			fighter_audio_0_fighter_audio_audio_init_done  => CONNECTED_TO_fighter_audio_0_fighter_audio_audio_init_done,  --                              .audio_init_done
+			fighter_audio_0_fighter_audio_audio_init_error => CONNECTED_TO_fighter_audio_0_fighter_audio_audio_init_error, --                              .audio_init_error
+			fighter_audio_0_fighter_audio_audio_i2c_sclk   => CONNECTED_TO_fighter_audio_0_fighter_audio_audio_i2c_sclk,   --                              .audio_i2c_sclk
+			fighter_audio_0_fighter_audio_audio_i2c_sdat   => CONNECTED_TO_fighter_audio_0_fighter_audio_audio_i2c_sdat,   --                              .audio_i2c_sdat
+			fighter_vga_0_vga_vga_r                        => CONNECTED_TO_fighter_vga_0_vga_vga_r,                        --             fighter_vga_0_vga.vga_r
+			fighter_vga_0_vga_vga_g                        => CONNECTED_TO_fighter_vga_0_vga_vga_g,                        --                              .vga_g
+			fighter_vga_0_vga_vga_b                        => CONNECTED_TO_fighter_vga_0_vga_vga_b,                        --                              .vga_b
+			fighter_vga_0_vga_vga_hs                       => CONNECTED_TO_fighter_vga_0_vga_vga_hs,                       --                              .vga_hs
+			fighter_vga_0_vga_vga_vs                       => CONNECTED_TO_fighter_vga_0_vga_vga_vs,                       --                              .vga_vs
+			fighter_vga_0_vga_vga_clk                      => CONNECTED_TO_fighter_vga_0_vga_vga_clk,                      --                              .vga_clk
+			fighter_vga_0_vga_vga_blank_n                  => CONNECTED_TO_fighter_vga_0_vga_vga_blank_n,                  --                              .vga_blank_n
+			fighter_vga_0_vga_vga_sync_n                   => CONNECTED_TO_fighter_vga_0_vga_vga_sync_n,                   --                              .vga_sync_n
 			hps_hps_io_emac1_inst_TX_CLK                   => CONNECTED_TO_hps_hps_io_emac1_inst_TX_CLK,                   --                           hps.hps_io_emac1_inst_TX_CLK
 			hps_hps_io_emac1_inst_TXD0                     => CONNECTED_TO_hps_hps_io_emac1_inst_TXD0,                     --                              .hps_io_emac1_inst_TXD0
 			hps_hps_io_emac1_inst_TXD1                     => CONNECTED_TO_hps_hps_io_emac1_inst_TXD1,                     --                              .hps_io_emac1_inst_TXD1
@@ -148,16 +174,6 @@
 			hps_ddr3_mem_odt                               => CONNECTED_TO_hps_ddr3_mem_odt,                               --                              .mem_odt
 			hps_ddr3_mem_dm                                => CONNECTED_TO_hps_ddr3_mem_dm,                                --                              .mem_dm
 			hps_ddr3_oct_rzqin                             => CONNECTED_TO_hps_ddr3_oct_rzqin,                             --                              .oct_rzqin
-			reset_reset_n                                  => CONNECTED_TO_reset_reset_n,                                  --                         reset.reset_n
-			fighter_audio_0_fighter_audio_audio_adcdat     => CONNECTED_TO_fighter_audio_0_fighter_audio_audio_adcdat,     -- fighter_audio_0_fighter_audio.audio_adcdat
-			fighter_audio_0_fighter_audio_audio_adclrck    => CONNECTED_TO_fighter_audio_0_fighter_audio_audio_adclrck,    --                              .audio_adclrck
-			fighter_audio_0_fighter_audio_audio_bclk       => CONNECTED_TO_fighter_audio_0_fighter_audio_audio_bclk,       --                              .audio_bclk
-			fighter_audio_0_fighter_audio_audio_dacdat     => CONNECTED_TO_fighter_audio_0_fighter_audio_audio_dacdat,     --                              .audio_dacdat
-			fighter_audio_0_fighter_audio_aud_daclrck      => CONNECTED_TO_fighter_audio_0_fighter_audio_aud_daclrck,      --                              .aud_daclrck
-			fighter_audio_0_fighter_audio_audio_xck        => CONNECTED_TO_fighter_audio_0_fighter_audio_audio_xck,        --                              .audio_xck
-			fighter_audio_0_fighter_audio_audio_init_done  => CONNECTED_TO_fighter_audio_0_fighter_audio_audio_init_done,  --                              .audio_init_done
-			fighter_audio_0_fighter_audio_audio_init_error => CONNECTED_TO_fighter_audio_0_fighter_audio_audio_init_error, --                              .audio_init_error
-			fighter_audio_0_fighter_audio_audio_i2c_sclk   => CONNECTED_TO_fighter_audio_0_fighter_audio_audio_i2c_sclk,   --                              .audio_i2c_sclk
-			fighter_audio_0_fighter_audio_audio_i2c_sdat   => CONNECTED_TO_fighter_audio_0_fighter_audio_audio_i2c_sdat    --                              .audio_i2c_sdat
+			reset_reset_n                                  => CONNECTED_TO_reset_reset_n                                   --                         reset.reset_n
 		);
 

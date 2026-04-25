@@ -1,5 +1,23 @@
 	soc_system u0 (
 		.clk_clk                                        (<connected-to-clk_clk>),                                        //                           clk.clk
+		.fighter_audio_0_fighter_audio_audio_adcdat     (<connected-to-fighter_audio_0_fighter_audio_audio_adcdat>),     // fighter_audio_0_fighter_audio.audio_adcdat
+		.fighter_audio_0_fighter_audio_audio_adclrck    (<connected-to-fighter_audio_0_fighter_audio_audio_adclrck>),    //                              .audio_adclrck
+		.fighter_audio_0_fighter_audio_audio_bclk       (<connected-to-fighter_audio_0_fighter_audio_audio_bclk>),       //                              .audio_bclk
+		.fighter_audio_0_fighter_audio_audio_dacdat     (<connected-to-fighter_audio_0_fighter_audio_audio_dacdat>),     //                              .audio_dacdat
+		.fighter_audio_0_fighter_audio_aud_daclrck      (<connected-to-fighter_audio_0_fighter_audio_aud_daclrck>),      //                              .aud_daclrck
+		.fighter_audio_0_fighter_audio_audio_xck        (<connected-to-fighter_audio_0_fighter_audio_audio_xck>),        //                              .audio_xck
+		.fighter_audio_0_fighter_audio_audio_init_done  (<connected-to-fighter_audio_0_fighter_audio_audio_init_done>),  //                              .audio_init_done
+		.fighter_audio_0_fighter_audio_audio_init_error (<connected-to-fighter_audio_0_fighter_audio_audio_init_error>), //                              .audio_init_error
+		.fighter_audio_0_fighter_audio_audio_i2c_sclk   (<connected-to-fighter_audio_0_fighter_audio_audio_i2c_sclk>),   //                              .audio_i2c_sclk
+		.fighter_audio_0_fighter_audio_audio_i2c_sdat   (<connected-to-fighter_audio_0_fighter_audio_audio_i2c_sdat>),   //                              .audio_i2c_sdat
+		.fighter_vga_0_vga_vga_r                        (<connected-to-fighter_vga_0_vga_vga_r>),                        //             fighter_vga_0_vga.vga_r
+		.fighter_vga_0_vga_vga_g                        (<connected-to-fighter_vga_0_vga_vga_g>),                        //                              .vga_g
+		.fighter_vga_0_vga_vga_b                        (<connected-to-fighter_vga_0_vga_vga_b>),                        //                              .vga_b
+		.fighter_vga_0_vga_vga_hs                       (<connected-to-fighter_vga_0_vga_vga_hs>),                       //                              .vga_hs
+		.fighter_vga_0_vga_vga_vs                       (<connected-to-fighter_vga_0_vga_vga_vs>),                       //                              .vga_vs
+		.fighter_vga_0_vga_vga_clk                      (<connected-to-fighter_vga_0_vga_vga_clk>),                      //                              .vga_clk
+		.fighter_vga_0_vga_vga_blank_n                  (<connected-to-fighter_vga_0_vga_vga_blank_n>),                  //                              .vga_blank_n
+		.fighter_vga_0_vga_vga_sync_n                   (<connected-to-fighter_vga_0_vga_vga_sync_n>),                   //                              .vga_sync_n
 		.hps_hps_io_emac1_inst_TX_CLK                   (<connected-to-hps_hps_io_emac1_inst_TX_CLK>),                   //                           hps.hps_io_emac1_inst_TX_CLK
 		.hps_hps_io_emac1_inst_TXD0                     (<connected-to-hps_hps_io_emac1_inst_TXD0>),                     //                              .hps_io_emac1_inst_TXD0
 		.hps_hps_io_emac1_inst_TXD1                     (<connected-to-hps_hps_io_emac1_inst_TXD1>),                     //                              .hps_io_emac1_inst_TXD1
@@ -65,16 +83,6 @@
 		.hps_ddr3_mem_odt                               (<connected-to-hps_ddr3_mem_odt>),                               //                              .mem_odt
 		.hps_ddr3_mem_dm                                (<connected-to-hps_ddr3_mem_dm>),                                //                              .mem_dm
 		.hps_ddr3_oct_rzqin                             (<connected-to-hps_ddr3_oct_rzqin>),                             //                              .oct_rzqin
-		.reset_reset_n                                  (<connected-to-reset_reset_n>),                                  //                         reset.reset_n
-		.fighter_audio_0_fighter_audio_audio_adcdat     (<connected-to-fighter_audio_0_fighter_audio_audio_adcdat>),     // fighter_audio_0_fighter_audio.audio_adcdat
-		.fighter_audio_0_fighter_audio_audio_adclrck    (<connected-to-fighter_audio_0_fighter_audio_audio_adclrck>),    //                              .audio_adclrck
-		.fighter_audio_0_fighter_audio_audio_bclk       (<connected-to-fighter_audio_0_fighter_audio_audio_bclk>),       //                              .audio_bclk
-		.fighter_audio_0_fighter_audio_audio_dacdat     (<connected-to-fighter_audio_0_fighter_audio_audio_dacdat>),     //                              .audio_dacdat
-		.fighter_audio_0_fighter_audio_aud_daclrck      (<connected-to-fighter_audio_0_fighter_audio_aud_daclrck>),      //                              .aud_daclrck
-		.fighter_audio_0_fighter_audio_audio_xck        (<connected-to-fighter_audio_0_fighter_audio_audio_xck>),        //                              .audio_xck
-		.fighter_audio_0_fighter_audio_audio_init_done  (<connected-to-fighter_audio_0_fighter_audio_audio_init_done>),  //                              .audio_init_done
-		.fighter_audio_0_fighter_audio_audio_init_error (<connected-to-fighter_audio_0_fighter_audio_audio_init_error>), //                              .audio_init_error
-		.fighter_audio_0_fighter_audio_audio_i2c_sclk   (<connected-to-fighter_audio_0_fighter_audio_audio_i2c_sclk>),   //                              .audio_i2c_sclk
-		.fighter_audio_0_fighter_audio_audio_i2c_sdat   (<connected-to-fighter_audio_0_fighter_audio_audio_i2c_sdat>)    //                              .audio_i2c_sdat
+		.reset_reset_n                                  (<connected-to-reset_reset_n>)                                   //                         reset.reset_n
 	);
 

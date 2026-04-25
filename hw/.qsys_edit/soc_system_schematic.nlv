@@ -27,6 +27,7 @@ preplace inst soc_system.hps_0.i2c3 -pg 1
 preplace inst soc_system.hps_0.wd_timer1 -pg 1
 preplace inst soc_system.hps_0.timer0 -pg 1
 preplace inst soc_system.hps_0.eosc1 -pg 1
+preplace inst soc_system.fighter_vga_0 -pg 1 -lvl 3 -y 310
 preplace inst soc_system -pg 1 -lvl 1 -y 40 -regy -20
 preplace inst soc_system.hps_0.dcan0 -pg 1
 preplace inst soc_system.hps_0.spim0 -pg 1
@@ -54,13 +55,14 @@ preplace inst soc_system.hps_0.f2s_periph_ref_clk -pg 1
 preplace inst soc_system.hps_0.fpga_interfaces -pg 1
 preplace inst soc_system.hps_0.axi_sdram -pg 1
 preplace inst soc_system.fighter_audio_0 -pg 1 -lvl 3 -y 30
-preplace netloc EXPORT<net_container>soc_system</net_container>(SLAVE)soc_system.hps_ddr3,(SLAVE)hps_0.memory) 1 0 2 NJ 60 NJ
-preplace netloc POINT_TO_POINT<net_container>soc_system</net_container>(MASTER)clk_0.clk_reset,(SLAVE)fighter_audio_0.reset) 1 1 2 400 300 NJ
-preplace netloc EXPORT<net_container>soc_system</net_container>(SLAVE)soc_system.clk,(SLAVE)clk_0.clk_in) 1 0 1 NJ
+preplace netloc EXPORT<net_container>soc_system</net_container>(SLAVE)hps_0.memory,(SLAVE)soc_system.hps_ddr3) 1 0 2 NJ 250 NJ
+preplace netloc EXPORT<net_container>soc_system</net_container>(SLAVE)fighter_vga_0.vga,(SLAVE)soc_system.fighter_vga_0_vga) 1 0 3 NJ 380 NJ 380 NJ
+preplace netloc FAN_OUT<net_container>soc_system</net_container>(MASTER)hps_0.h2f_lw_axi_master,(SLAVE)fighter_audio_0.avalon_slave_0,(SLAVE)fighter_vga_0.avalon_slave_0) 1 2 1 810
 preplace netloc EXPORT<net_container>soc_system</net_container>(SLAVE)soc_system.reset,(SLAVE)clk_0.clk_in_reset) 1 0 1 NJ
+preplace netloc EXPORT<net_container>soc_system</net_container>(SLAVE)soc_system.hps,(SLAVE)hps_0.hps_io) 1 0 2 NJ 190 NJ
 preplace netloc EXPORT<net_container>soc_system</net_container>(SLAVE)soc_system.fighter_audio_0_fighter_audio,(SLAVE)fighter_audio_0.fighter_audio) 1 0 3 NJ 340 NJ 340 NJ
-preplace netloc POINT_TO_POINT<net_container>soc_system</net_container>(MASTER)hps_0.h2f_lw_axi_master,(SLAVE)fighter_audio_0.avalon_slave_0) 1 2 1 770
-preplace netloc EXPORT<net_container>soc_system</net_container>(SLAVE)hps_0.hps_io,(SLAVE)soc_system.hps) 1 0 2 NJ 40 NJ
-preplace netloc FAN_OUT<net_container>soc_system</net_container>(SLAVE)hps_0.h2f_lw_axi_clock,(SLAVE)hps_0.f2h_axi_clock,(MASTER)clk_0.clk,(SLAVE)hps_0.h2f_axi_clock,(SLAVE)fighter_audio_0.clock) 1 1 2 420 320 NJ
+preplace netloc FAN_OUT<net_container>soc_system</net_container>(SLAVE)fighter_vga_0.reset,(SLAVE)fighter_audio_0.reset,(MASTER)clk_0.clk_reset) 1 1 2 NJ 300 830
+preplace netloc EXPORT<net_container>soc_system</net_container>(SLAVE)clk_0.clk_in,(SLAVE)soc_system.clk) 1 0 1 NJ
+preplace netloc FAN_OUT<net_container>soc_system</net_container>(SLAVE)fighter_audio_0.clock,(SLAVE)hps_0.f2h_axi_clock,(SLAVE)hps_0.h2f_lw_axi_clock,(SLAVE)fighter_vga_0.clock,(SLAVE)hps_0.h2f_axi_clock,(MASTER)clk_0.clk) 1 1 2 420 360 790
 levelinfo -pg 1 0 190 1000
 levelinfo -hier soc_system 200 230 580 860 990

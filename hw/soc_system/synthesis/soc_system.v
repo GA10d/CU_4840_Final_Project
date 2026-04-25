@@ -15,6 +15,14 @@ module soc_system (
 		output wire        fighter_audio_0_fighter_audio_audio_init_error, //                              .audio_init_error
 		inout  wire        fighter_audio_0_fighter_audio_audio_i2c_sclk,   //                              .audio_i2c_sclk
 		inout  wire        fighter_audio_0_fighter_audio_audio_i2c_sdat,   //                              .audio_i2c_sdat
+		output wire [7:0]  fighter_vga_0_vga_vga_r,                        //             fighter_vga_0_vga.vga_r
+		output wire [7:0]  fighter_vga_0_vga_vga_g,                        //                              .vga_g
+		output wire [7:0]  fighter_vga_0_vga_vga_b,                        //                              .vga_b
+		output wire        fighter_vga_0_vga_vga_hs,                       //                              .vga_hs
+		output wire        fighter_vga_0_vga_vga_vs,                       //                              .vga_vs
+		output wire        fighter_vga_0_vga_vga_clk,                      //                              .vga_clk
+		output wire        fighter_vga_0_vga_vga_blank_n,                  //                              .vga_blank_n
+		output wire        fighter_vga_0_vga_vga_sync_n,                   //                              .vga_sync_n
 		output wire        hps_hps_io_emac1_inst_TX_CLK,                   //                           hps.hps_io_emac1_inst_TX_CLK
 		output wire        hps_hps_io_emac1_inst_TXD0,                     //                              .hps_io_emac1_inst_TXD0
 		output wire        hps_hps_io_emac1_inst_TXD1,                     //                              .hps_io_emac1_inst_TXD1
@@ -125,7 +133,13 @@ module soc_system (
 	wire         mm_interconnect_0_fighter_audio_0_avalon_slave_0_read;       // mm_interconnect_0:fighter_audio_0_avalon_slave_0_read -> fighter_audio_0:avs_read
 	wire         mm_interconnect_0_fighter_audio_0_avalon_slave_0_write;      // mm_interconnect_0:fighter_audio_0_avalon_slave_0_write -> fighter_audio_0:avs_write
 	wire  [31:0] mm_interconnect_0_fighter_audio_0_avalon_slave_0_writedata;  // mm_interconnect_0:fighter_audio_0_avalon_slave_0_writedata -> fighter_audio_0:avs_writedata
-	wire         rst_controller_reset_out_reset;                              // rst_controller:reset_out -> [fighter_audio_0:reset_n, mm_interconnect_0:fighter_audio_0_reset_reset_bridge_in_reset_reset]
+	wire         mm_interconnect_0_fighter_vga_0_avalon_slave_0_chipselect;   // mm_interconnect_0:fighter_vga_0_avalon_slave_0_chipselect -> fighter_vga_0:avs_chipselect
+	wire  [31:0] mm_interconnect_0_fighter_vga_0_avalon_slave_0_readdata;     // fighter_vga_0:avs_readdata -> mm_interconnect_0:fighter_vga_0_avalon_slave_0_readdata
+	wire   [4:0] mm_interconnect_0_fighter_vga_0_avalon_slave_0_address;      // mm_interconnect_0:fighter_vga_0_avalon_slave_0_address -> fighter_vga_0:avs_address
+	wire         mm_interconnect_0_fighter_vga_0_avalon_slave_0_read;         // mm_interconnect_0:fighter_vga_0_avalon_slave_0_read -> fighter_vga_0:avs_read
+	wire         mm_interconnect_0_fighter_vga_0_avalon_slave_0_write;        // mm_interconnect_0:fighter_vga_0_avalon_slave_0_write -> fighter_vga_0:avs_write
+	wire  [31:0] mm_interconnect_0_fighter_vga_0_avalon_slave_0_writedata;    // mm_interconnect_0:fighter_vga_0_avalon_slave_0_writedata -> fighter_vga_0:avs_writedata
+	wire         rst_controller_reset_out_reset;                              // rst_controller:reset_out -> [fighter_audio_0:reset_n, fighter_vga_0:reset_n, mm_interconnect_0:fighter_audio_0_reset_reset_bridge_in_reset_reset]
 	wire         rst_controller_001_reset_out_reset;                          // rst_controller_001:reset_out -> mm_interconnect_0:hps_0_h2f_lw_axi_master_agent_clk_reset_reset_bridge_in_reset_reset
 	wire         hps_0_h2f_reset_reset;                                       // hps_0:h2f_rst_n -> rst_controller_001:reset_in0
 
@@ -155,6 +169,25 @@ module soc_system (
 		.codec_init_error (fighter_audio_0_fighter_audio_audio_init_error),              //               .audio_init_error
 		.fpga_i2c_sclk    (fighter_audio_0_fighter_audio_audio_i2c_sclk),                //               .audio_i2c_sclk
 		.fpga_i2c_sdat    (fighter_audio_0_fighter_audio_audio_i2c_sdat)                 //               .audio_i2c_sdat
+	);
+
+	fighter_vga_renderer fighter_vga_0 (
+		.clk_50         (clk_clk),                                                   //          clock.clk
+		.reset_n        (~rst_controller_reset_out_reset),                           //          reset.reset_n
+		.avs_chipselect (mm_interconnect_0_fighter_vga_0_avalon_slave_0_chipselect), // avalon_slave_0.chipselect
+		.avs_read       (mm_interconnect_0_fighter_vga_0_avalon_slave_0_read),       //               .read
+		.avs_write      (mm_interconnect_0_fighter_vga_0_avalon_slave_0_write),      //               .write
+		.avs_address    (mm_interconnect_0_fighter_vga_0_avalon_slave_0_address),    //               .address
+		.avs_writedata  (mm_interconnect_0_fighter_vga_0_avalon_slave_0_writedata),  //               .writedata
+		.avs_readdata   (mm_interconnect_0_fighter_vga_0_avalon_slave_0_readdata),   //               .readdata
+		.vga_r          (fighter_vga_0_vga_vga_r),                                   //            vga.vga_r
+		.vga_g          (fighter_vga_0_vga_vga_g),                                   //               .vga_g
+		.vga_b          (fighter_vga_0_vga_vga_b),                                   //               .vga_b
+		.vga_hs         (fighter_vga_0_vga_vga_hs),                                  //               .vga_hs
+		.vga_vs         (fighter_vga_0_vga_vga_vs),                                  //               .vga_vs
+		.vga_clk        (fighter_vga_0_vga_vga_clk),                                 //               .vga_clk
+		.vga_blank_n    (fighter_vga_0_vga_vga_blank_n),                             //               .vga_blank_n
+		.vga_sync_n     (fighter_vga_0_vga_vga_sync_n)                               //               .vga_sync_n
 	);
 
 	soc_system_hps_0 #(
@@ -388,7 +421,13 @@ module soc_system (
 		.fighter_audio_0_avalon_slave_0_read                                 (mm_interconnect_0_fighter_audio_0_avalon_slave_0_read),       //                                                              .read
 		.fighter_audio_0_avalon_slave_0_readdata                             (mm_interconnect_0_fighter_audio_0_avalon_slave_0_readdata),   //                                                              .readdata
 		.fighter_audio_0_avalon_slave_0_writedata                            (mm_interconnect_0_fighter_audio_0_avalon_slave_0_writedata),  //                                                              .writedata
-		.fighter_audio_0_avalon_slave_0_chipselect                           (mm_interconnect_0_fighter_audio_0_avalon_slave_0_chipselect)  //                                                              .chipselect
+		.fighter_audio_0_avalon_slave_0_chipselect                           (mm_interconnect_0_fighter_audio_0_avalon_slave_0_chipselect), //                                                              .chipselect
+		.fighter_vga_0_avalon_slave_0_address                                (mm_interconnect_0_fighter_vga_0_avalon_slave_0_address),      //                                  fighter_vga_0_avalon_slave_0.address
+		.fighter_vga_0_avalon_slave_0_write                                  (mm_interconnect_0_fighter_vga_0_avalon_slave_0_write),        //                                                              .write
+		.fighter_vga_0_avalon_slave_0_read                                   (mm_interconnect_0_fighter_vga_0_avalon_slave_0_read),         //                                                              .read
+		.fighter_vga_0_avalon_slave_0_readdata                               (mm_interconnect_0_fighter_vga_0_avalon_slave_0_readdata),     //                                                              .readdata
+		.fighter_vga_0_avalon_slave_0_writedata                              (mm_interconnect_0_fighter_vga_0_avalon_slave_0_writedata),    //                                                              .writedata
+		.fighter_vga_0_avalon_slave_0_chipselect                             (mm_interconnect_0_fighter_vga_0_avalon_slave_0_chipselect)    //                                                              .chipselect
 	);
 
 	altera_reset_controller #(

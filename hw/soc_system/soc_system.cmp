@@ -11,6 +11,14 @@
 			fighter_audio_0_fighter_audio_audio_init_error : out   std_logic;                                        -- audio_init_error
 			fighter_audio_0_fighter_audio_audio_i2c_sclk   : inout std_logic                     := 'X';             -- audio_i2c_sclk
 			fighter_audio_0_fighter_audio_audio_i2c_sdat   : inout std_logic                     := 'X';             -- audio_i2c_sdat
+			fighter_vga_0_vga_vga_r                        : out   std_logic_vector(7 downto 0);                     -- vga_r
+			fighter_vga_0_vga_vga_g                        : out   std_logic_vector(7 downto 0);                     -- vga_g
+			fighter_vga_0_vga_vga_b                        : out   std_logic_vector(7 downto 0);                     -- vga_b
+			fighter_vga_0_vga_vga_hs                       : out   std_logic;                                        -- vga_hs
+			fighter_vga_0_vga_vga_vs                       : out   std_logic;                                        -- vga_vs
+			fighter_vga_0_vga_vga_clk                      : out   std_logic;                                        -- vga_clk
+			fighter_vga_0_vga_vga_blank_n                  : out   std_logic;                                        -- vga_blank_n
+			fighter_vga_0_vga_vga_sync_n                   : out   std_logic;                                        -- vga_sync_n
 			hps_hps_io_emac1_inst_TX_CLK                   : out   std_logic;                                        -- hps_io_emac1_inst_TX_CLK
 			hps_hps_io_emac1_inst_TXD0                     : out   std_logic;                                        -- hps_io_emac1_inst_TXD0
 			hps_hps_io_emac1_inst_TXD1                     : out   std_logic;                                        -- hps_io_emac1_inst_TXD1
