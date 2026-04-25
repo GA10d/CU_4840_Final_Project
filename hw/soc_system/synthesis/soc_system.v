@@ -135,7 +135,7 @@ module soc_system (
 	wire  [31:0] mm_interconnect_0_fighter_audio_0_avalon_slave_0_writedata;  // mm_interconnect_0:fighter_audio_0_avalon_slave_0_writedata -> fighter_audio_0:avs_writedata
 	wire         mm_interconnect_0_fighter_vga_0_avalon_slave_0_chipselect;   // mm_interconnect_0:fighter_vga_0_avalon_slave_0_chipselect -> fighter_vga_0:avs_chipselect
 	wire  [31:0] mm_interconnect_0_fighter_vga_0_avalon_slave_0_readdata;     // fighter_vga_0:avs_readdata -> mm_interconnect_0:fighter_vga_0_avalon_slave_0_readdata
-	wire   [4:0] mm_interconnect_0_fighter_vga_0_avalon_slave_0_address;      // mm_interconnect_0:fighter_vga_0_avalon_slave_0_address -> fighter_vga_0:avs_address
+	wire  [15:0] mm_interconnect_0_fighter_vga_0_avalon_slave_0_address;      // mm_interconnect_0:fighter_vga_0_avalon_slave_0_address -> fighter_vga_0:avs_address
 	wire         mm_interconnect_0_fighter_vga_0_avalon_slave_0_read;         // mm_interconnect_0:fighter_vga_0_avalon_slave_0_read -> fighter_vga_0:avs_read
 	wire         mm_interconnect_0_fighter_vga_0_avalon_slave_0_write;        // mm_interconnect_0:fighter_vga_0_avalon_slave_0_write -> fighter_vga_0:avs_write
 	wire  [31:0] mm_interconnect_0_fighter_vga_0_avalon_slave_0_writedata;    // mm_interconnect_0:fighter_vga_0_avalon_slave_0_writedata -> fighter_vga_0:avs_writedata

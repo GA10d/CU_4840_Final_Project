@@ -108,8 +108,8 @@ static const char *fighter_script_name(fighter_script_kind_t kind) {
 }
 
 static void fighter_print_usage(const char *argv0) {
-  printf("usage: %s [--usb] [--script smoke|ko] [--console] [--audio] "
-         "[--frames N]\n",
+  printf("usage: %s [--usb] [--script smoke|ko] [--console] [--fb PATH] "
+         "[--audio] [--frames N]\n",
          argv0);
 }
 
@@ -166,6 +166,9 @@ int main(int argc, char **argv) {
       }
     } else if (strcmp(argv[i], "--console") == 0) {
       renderer_options.prefer_framebuffer = 0;
+    } else if (strcmp(argv[i], "--fb") == 0 && i + 1 < argc) {
+      renderer_options.framebuffer_path = argv[++i];
+      renderer_options.prefer_framebuffer = 1;
     } else if (strcmp(argv[i], "--audio") == 0) {
       audio_options.enable_command_audio = 1;
     } else if (strcmp(argv[i], "--frames") == 0 && i + 1 < argc) {
@@ -228,18 +231,21 @@ int main(int argc, char **argv) {
   printf("  input mode: %s\n",
          input_mode == FIGHTER_INPUT_MODE_USB ? "usb" : fighter_script_name(script_kind));
   printf("  renderer  : %s\n", fighter_renderer_backend_name(&renderer));
-  if (strcmp(fighter_renderer_backend_name(&renderer), "framebuffer") == 0) {
+  if (strcmp(fighter_renderer_backend_name(&renderer), "mmio") == 0) {
+    printf("  detail    : %s\n", fighter_renderer_status_detail(&renderer));
+  } else if (strcmp(fighter_renderer_backend_name(&renderer), "framebuffer") == 0) {
     printf("  framebuffer: %s\n",
            fighter_renderer_active_framebuffer_path(&renderer));
   } else if (renderer_options.prefer_framebuffer) {
-    fprintf(stderr, "warning: framebuffer renderer unavailable, fallback to console\n");
+    fprintf(stderr, "warning: VGA/framebuffer renderer unavailable, fallback to console\n");
     fprintf(stderr, "         detail: %s\n",
             fighter_renderer_status_detail(&renderer));
   }
   printf("  audio     : %s\n", fighter_audio_backend_name(&audio_context));
 
   use_fixed_timestep =
-      realtime || strcmp(fighter_renderer_backend_name(&renderer), "framebuffer") == 0;
+      realtime || strcmp(fighter_renderer_backend_name(&renderer), "mmio") == 0 ||
+      strcmp(fighter_renderer_backend_name(&renderer), "framebuffer") == 0;
   frame_index = 0;
   previous_tick_ns = fighter_now_ns();
   accumulator_ns = 0;

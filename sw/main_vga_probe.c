@@ -23,11 +23,17 @@ enum {
   FIGHTER_VGA_REG_PLAYER1_FACING = 11,
   FIGHTER_VGA_REG_PLAYER2_FACING = 12,
   FIGHTER_VGA_REG_IDENT = 31,
-  FIGHTER_VGA_REG_SPAN_COUNT = 32
+  FIGHTER_VGA_REG_FRAME_WORD_OFFSET = 1024,
+  FIGHTER_VGA_FRAME_WIDTH = 320,
+  FIGHTER_VGA_FRAME_HEIGHT = 240,
+  FIGHTER_VGA_FRAME_WORD_COUNT =
+      (FIGHTER_VGA_FRAME_WIDTH * FIGHTER_VGA_FRAME_HEIGHT) / 2,
+  FIGHTER_VGA_REG_SPAN_COUNT =
+      FIGHTER_VGA_REG_FRAME_WORD_OFFSET + FIGHTER_VGA_FRAME_WORD_COUNT
 };
 
 static const off_t k_default_bridge_reset_addr = (off_t)0xFFD0501C;
-static const off_t k_default_vga_mmio_addr = (off_t)0xFF200080;
+static const off_t k_default_vga_mmio_addr = (off_t)0xFF240000;
 static const uint32_t k_vga_ident = 0x56504741U;
 
 static int parse_address(const char *text, off_t default_value, off_t *out) {
@@ -149,9 +155,7 @@ int main(int argc, char **argv) {
     }
   }
 
-  if (scan && !mmio_addr_overridden) {
-    mmio_addr = (off_t)0xFF200000;
-  }
+  (void)mmio_addr_overridden;
 
   mem_fd = open("/dev/mem", O_RDWR | O_SYNC);
   if (mem_fd < 0) {
@@ -207,20 +211,30 @@ int main(int argc, char **argv) {
   }
 
   if (write_test) {
-    vga_regs[FIGHTER_VGA_REG_GAME_STATE] = 1U;
-    vga_regs[FIGHTER_VGA_REG_PLAYER1_X] = 96U;
-    vga_regs[FIGHTER_VGA_REG_PLAYER1_Y] = 304U;
-    vga_regs[FIGHTER_VGA_REG_PLAYER1_STATE] = 5U;
-    vga_regs[FIGHTER_VGA_REG_PLAYER2_X] = 464U;
-    vga_regs[FIGHTER_VGA_REG_PLAYER2_Y] = 304U;
-    vga_regs[FIGHTER_VGA_REG_PLAYER2_STATE] = 4U;
-    vga_regs[FIGHTER_VGA_REG_PLAYER1_HP] = 80U;
-    vga_regs[FIGHTER_VGA_REG_PLAYER2_HP] = 35U;
-    vga_regs[FIGHTER_VGA_REG_ROUND_TIMER] = 77U;
-    vga_regs[FIGHTER_VGA_REG_WINNER] = 0U;
-    vga_regs[FIGHTER_VGA_REG_PLAYER1_FACING] = 1U;
-    vga_regs[FIGHTER_VGA_REG_PLAYER2_FACING] = 0U;
-    printf("write_test        : wrote fixed PLAYING scene registers\n");
+    volatile uint32_t *frame =
+        vga_regs + FIGHTER_VGA_REG_FRAME_WORD_OFFSET;
+    int x;
+    int y;
+
+    for (y = 0; y < FIGHTER_VGA_FRAME_HEIGHT; ++y) {
+      for (x = 0; x < FIGHTER_VGA_FRAME_WIDTH; x += 2) {
+        uint16_t p0 =
+            (uint16_t)((((unsigned int)x * 31U) / FIGHTER_VGA_FRAME_WIDTH)
+                       << 11) |
+            (uint16_t)((((unsigned int)y * 63U) / FIGHTER_VGA_FRAME_HEIGHT)
+                       << 5) |
+            0x000fU;
+        uint16_t p1 =
+            0xf800U |
+            (uint16_t)((((unsigned int)y * 63U) / FIGHTER_VGA_FRAME_HEIGHT)
+                       << 5) |
+            (uint16_t)(((unsigned int)x * 31U) / FIGHTER_VGA_FRAME_WIDTH);
+        frame[(y * FIGHTER_VGA_FRAME_WIDTH + x) / 2] =
+            (uint32_t)p0 | ((uint32_t)p1 << 16);
+      }
+    }
+    printf("write_test        : wrote RGB565 gradient frame (%dx%d)\n",
+           FIGHTER_VGA_FRAME_WIDTH, FIGHTER_VGA_FRAME_HEIGHT);
   }
 
   unmap_region(&vga_map, &vga_map_length);

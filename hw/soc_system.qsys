@@ -636,7 +636,7 @@
    start="hps_0.h2f_lw_axi_master"
    end="fighter_vga_0.avalon_slave_0">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x0080" />
+  <parameter name="baseAddress" value="0x40000" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection

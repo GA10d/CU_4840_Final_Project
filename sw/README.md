@@ -42,8 +42,8 @@
 - `game/`
   - Phase 1 状态机、倒计时、血量、命中判定
 - `render_if/`
-  - console / framebuffer 渲染
-  - Lab 3 风格 MMIO 编码
+  - console / Linux framebuffer / FPGA VGA MMIO 渲染
+  - MMIO 后端会把完整游戏画面渲染成 `320x240 RGB565` 帧缓冲并写入 FPGA VGA IP
 - `audio/`
   - 菜单 BGM、SFX 的事件调度
   - WM8731/MMIO 播放路径
@@ -107,7 +107,29 @@ VGA / framebuffer 输出：
 ./input_demo --console
 ```
 
-`input_demo` 会读取最多两个 USB 键盘，进入菜单后按任意映射键开始对局。若目标板上的 VGA framebuffer 不是 `/dev/fb0`，用 `--fb PATH` 指定；如果没有可用 framebuffer，会自动打印 console 渲染状态，方便继续调试逻辑。
+`input_demo` 会先尝试 FPGA VGA MMIO：默认地址是 `0xFF240000`，对应硬件里的 `fighter_vga_0`。如果 MMIO 探测不到，会继续尝试 Linux framebuffer；如果都不可用，会自动打印 console 渲染状态，方便继续调试逻辑。
+
+`phase1_demo` 也走同一套 VGA/MMIO 渲染后端，适合跑固定脚本或不接键盘时做演示：
+
+```bash
+./phase1_demo --script ko
+./phase1_demo --script smoke
+./phase1_demo --usb
+```
+
+游戏素材默认从 `/root/game_assets` 读取；如果在仓库里的 `sw/` 目录直接运行，也会回退到 `../game_assets`。目标板路径不一样时可以指定：
+
+```bash
+FIGHTER_ASSET_ROOT=/path/to/game_assets ./input_demo
+```
+
+VGA bring-up 可以先跑：
+
+```bash
+./vga_probe
+```
+
+它会探测 `VPGA` 标识并写入一帧 RGB565 渐变，用来确认 HPS 到 FPGA VGA 帧缓冲链路。
 
 脚本方式验证 Phase 1：
 

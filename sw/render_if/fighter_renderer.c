@@ -19,7 +19,7 @@
 
 #ifdef __linux__
 static const off_t k_fighter_vga_default_bridge_reset_addr = (off_t)0xFFD0501C;
-static const off_t k_fighter_vga_default_mmio_addr = (off_t)0xFF200080;
+static const off_t k_fighter_vga_default_mmio_addr = (off_t)0xFF240000;
 static const uint32_t k_fighter_vga_ident = 0x56504741U; /* "VPGA" */
 #endif
 
@@ -86,6 +86,23 @@ static const fighter_glyph_t *fighter_find_glyph(char ch) {
 
   return &k_fighter_glyphs[0];
 }
+
+static void fighter_renderer_draw_menu_fb(fighter_renderer_t *renderer,
+                                          const fighter_game_t *game);
+static void fighter_renderer_draw_playfield_fb(
+    fighter_renderer_t *renderer,
+    const fighter_game_t *game,
+    const fighter_animation_system_t *anim_system,
+    int draw_overlay);
+static void fighter_renderer_draw_game_over_fb(
+    fighter_renderer_t *renderer,
+    const fighter_game_t *game,
+    const fighter_animation_system_t *anim_system);
+static int fighter_rgb_image_load_ppm(fighter_rgb_image_t *image,
+                                      const char *path);
+static int fighter_fb_image_build_scaled(fighter_renderer_t *renderer,
+                                         const fighter_rgb_image_t *source,
+                                         fighter_fb_image_t *scaled);
 #endif
 
 const char *fighter_renderer_menu_frame_path(int frame_index) {
@@ -205,6 +222,50 @@ static int fighter_renderer_enable_fpga_bridges(fighter_renderer_t *renderer) {
   return 0;
 }
 
+static void fighter_renderer_load_menu_assets(fighter_renderer_t *renderer) {
+  static const char *const k_asset_roots[] = {
+      NULL,
+      "/root/game_assets",
+      "../game_assets",
+  };
+  int i;
+
+  if (!renderer) {
+    return;
+  }
+
+  for (i = 0; i < 2; ++i) {
+    const char *env_root = getenv("FIGHTER_ASSET_ROOT");
+    int root_index;
+
+    for (root_index = 0;
+         root_index < (int)(sizeof(k_asset_roots) / sizeof(k_asset_roots[0]));
+         ++root_index) {
+      const char *root = root_index == 0 ? env_root : k_asset_roots[root_index];
+      char path[512];
+
+      if (!root || root[0] == '\0') {
+        continue;
+      }
+      if (snprintf(path, sizeof(path), "%s/ui/menu/menu_frame_%d.ppm",
+                   root, i) >= (int)sizeof(path)) {
+        continue;
+      }
+      if (fighter_rgb_image_load_ppm(&renderer->menu_frames[i], path) == 0) {
+        break;
+      }
+    }
+    if (!renderer->menu_frames[i].pixels) {
+      (void)fighter_rgb_image_load_ppm(&renderer->menu_frames[i],
+                                       fighter_renderer_menu_frame_ppm_path(i));
+    }
+    if (renderer->menu_frames[i].pixels) {
+      (void)fighter_fb_image_build_scaled(renderer, &renderer->menu_frames[i],
+                                          &renderer->menu_frame_cache[i]);
+    }
+  }
+}
+
 static void fighter_renderer_close_mmio(fighter_renderer_t *renderer) {
   if (!renderer) {
     return;
@@ -220,6 +281,29 @@ static void fighter_renderer_close_mmio(fighter_renderer_t *renderer) {
   }
   renderer->vga_regs = NULL;
   renderer->vga_bridge_reset_reg = NULL;
+}
+
+static int fighter_renderer_prepare_mmio_framebuffer(
+    fighter_renderer_t *renderer) {
+  if (!renderer) {
+    return -1;
+  }
+
+  renderer->fb_width = FIGHTER_MMIO_FRAME_WIDTH;
+  renderer->fb_height = FIGHTER_MMIO_FRAME_HEIGHT;
+  renderer->fb_stride = FIGHTER_MMIO_FRAME_WIDTH * 2;
+  renderer->fb_bpp = 16;
+  renderer->fb_data_length =
+      (unsigned long)(renderer->fb_stride * renderer->fb_height);
+  renderer->fb_backbuffer = (unsigned char *)malloc(renderer->fb_data_length);
+  renderer->fb_backbuffer_length = renderer->fb_data_length;
+  if (!renderer->fb_backbuffer) {
+    renderer->fb_backbuffer_length = 0;
+    return -1;
+  }
+
+  memset(renderer->fb_backbuffer, 0, renderer->fb_backbuffer_length);
+  return 0;
 }
 
 static int fighter_renderer_init_mmio(fighter_renderer_t *renderer) {
@@ -297,25 +381,78 @@ static int fighter_renderer_init_mmio(fighter_renderer_t *renderer) {
     return -1;
   }
 
+  if (renderer->vga_regs[1] != FIGHTER_MMIO_FRAME_WIDTH ||
+      renderer->vga_regs[2] != FIGHTER_MMIO_FRAME_HEIGHT ||
+      renderer->vga_regs[3] != FIGHTER_MMIO_FRAME_WIDTH * 2) {
+    snprintf(renderer->init_status, sizeof(renderer->init_status),
+             "VGA MMIO: framebuffer geometry mismatch (%ux%u stride=%u)",
+             renderer->vga_regs[1], renderer->vga_regs[2], renderer->vga_regs[3]);
+    fighter_renderer_close_mmio(renderer);
+    return -1;
+  }
+
+  if (fighter_renderer_prepare_mmio_framebuffer(renderer) != 0) {
+    snprintf(renderer->init_status, sizeof(renderer->init_status),
+             "VGA MMIO: failed to allocate %dx%d backbuffer",
+             FIGHTER_MMIO_FRAME_WIDTH, FIGHTER_MMIO_FRAME_HEIGHT);
+    fighter_renderer_close_mmio(renderer);
+    return -1;
+  }
+
+  fighter_renderer_load_menu_assets(renderer);
   renderer->backend = FIGHTER_RENDERER_BACKEND_MMIO;
   snprintf(renderer->init_status, sizeof(renderer->init_status),
-           "VGA MMIO active at 0x%08lX", (unsigned long)mmio_addr);
+           "VGA MMIO framebuffer active at 0x%08lX (%dx%d RGB565)",
+           (unsigned long)mmio_addr, renderer->fb_width, renderer->fb_height);
   return 0;
 }
 
-static void fighter_renderer_draw_mmio(fighter_renderer_t *renderer,
-                                       const fighter_game_t *game) {
-  uint32_t regs[FIGHTER_MMIO_REG_COUNT];
+static void fighter_renderer_flush_mmio_frame(fighter_renderer_t *renderer) {
+  const unsigned char *src;
+  volatile uint32_t *dst;
+  int word_count;
   int i;
 
+  if (!renderer || !renderer->vga_regs || !renderer->fb_backbuffer) {
+    return;
+  }
+
+  src = renderer->fb_backbuffer;
+  dst = renderer->vga_regs + FIGHTER_MMIO_REG_FRAME_WORD_OFFSET;
+  word_count = FIGHTER_MMIO_FRAME_WORD_COUNT;
+  for (i = 0; i < word_count; ++i) {
+    uint32_t lo =
+        (uint32_t)src[(size_t)i * 4U] |
+        ((uint32_t)src[(size_t)i * 4U + 1U] << 8);
+    uint32_t hi =
+        (uint32_t)src[(size_t)i * 4U + 2U] |
+        ((uint32_t)src[(size_t)i * 4U + 3U] << 8);
+    dst[i] = lo | (hi << 16);
+  }
+}
+
+static void fighter_renderer_draw_mmio(
+    fighter_renderer_t *renderer,
+    const fighter_game_t *game,
+    const fighter_animation_system_t *anim_system) {
   if (!renderer || !renderer->vga_regs || !game) {
     return;
   }
 
-  fighter_mmio_encode(game, regs);
-  for (i = 0; i < FIGHTER_MMIO_REG_COUNT; ++i) {
-    renderer->vga_regs[i] = regs[i];
+  switch (game->state) {
+    case FIGHTER_GAME_STATE_MENU:
+      fighter_renderer_draw_menu_fb(renderer, game);
+      break;
+    case FIGHTER_GAME_STATE_PLAYING:
+      fighter_renderer_draw_playfield_fb(renderer, game, anim_system, 0);
+      break;
+    case FIGHTER_GAME_STATE_GAME_OVER:
+      fighter_renderer_draw_game_over_fb(renderer, game, anim_system);
+      break;
+    default:
+      break;
   }
+  fighter_renderer_flush_mmio_frame(renderer);
 }
 #endif
 
@@ -909,7 +1046,7 @@ static int fighter_fb_image_build_scaled(fighter_renderer_t *renderer,
 
 static void fighter_fb_draw_cached_image(fighter_renderer_t *renderer,
                                          const fighter_fb_image_t *image) {
-  if (!renderer || !image || !image->pixels || !renderer->fb_data) {
+  if (!renderer || !image || !image->pixels) {
     return;
   }
 
@@ -919,7 +1056,7 @@ static void fighter_fb_draw_cached_image(fighter_renderer_t *renderer,
     return;
   }
 
-  if (image->data_length == renderer->fb_data_length) {
+  if (renderer->fb_data && image->data_length == renderer->fb_data_length) {
     memcpy(renderer->fb_data, image->pixels, image->data_length);
   }
 }
@@ -1590,15 +1727,7 @@ int fighter_renderer_init(fighter_renderer_t *renderer,
   }
 
   if (initialized) {
-    int i;
-    for (i = 0; i < 2; ++i) {
-      (void)fighter_rgb_image_load_ppm(&renderer->menu_frames[i],
-                                       fighter_renderer_menu_frame_ppm_path(i));
-      if (renderer->menu_frames[i].pixels) {
-        (void)fighter_fb_image_build_scaled(renderer, &renderer->menu_frames[i],
-                                            &renderer->menu_frame_cache[i]);
-      }
-    }
+    fighter_renderer_load_menu_assets(renderer);
   } else if (!local_options.prefer_framebuffer) {
     snprintf(renderer->init_status, sizeof(renderer->init_status),
              "console renderer forced by option");
@@ -1659,7 +1788,7 @@ void fighter_renderer_draw(fighter_renderer_t *renderer,
 
 #ifdef __linux__
   if (renderer->backend == FIGHTER_RENDERER_BACKEND_MMIO) {
-    fighter_renderer_draw_mmio(renderer, game);
+    fighter_renderer_draw_mmio(renderer, game, anim_system);
     return;
   }
 

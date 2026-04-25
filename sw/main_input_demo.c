@@ -128,11 +128,11 @@ int main(int argc, char **argv) {
   printf("  renderer   : %s\n", fighter_renderer_backend_name(&renderer));
   printf("  detail     : %s\n", fighter_renderer_status_detail(&renderer));
   if (renderer_options.prefer_framebuffer &&
-      strcmp(fighter_renderer_backend_name(&renderer), "framebuffer") != 0) {
-    printf("  warning    : framebuffer output is unavailable; falling back to "
-           "console renderer.\n");
-    printf("               Check the VGA framebuffer device path, for example "
-           "try --fb /dev/fb0.\n");
+      strcmp(fighter_renderer_backend_name(&renderer), "console") == 0) {
+    printf("  warning    : VGA/framebuffer output is unavailable; falling back "
+           "to console renderer.\n");
+    printf("               Check the FPGA bitstream and VGA MMIO address, or try "
+           "--fb /dev/fb0.\n");
   }
   printf("  audio      : %s\n", fighter_audio_backend_name(&audio_context));
   printf("\n");

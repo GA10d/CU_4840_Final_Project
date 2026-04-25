@@ -99,7 +99,7 @@ set_interface_property avalon_slave_0 associatedReset reset
 set_interface_property avalon_slave_0 bitsPerSymbol 8
 set_interface_property avalon_slave_0 burstOnBurstBoundariesOnly false
 set_interface_property avalon_slave_0 burstcountUnits WORDS
-set_interface_property avalon_slave_0 explicitAddressSpan 128
+set_interface_property avalon_slave_0 explicitAddressSpan 262144
 set_interface_property avalon_slave_0 holdTime 0
 set_interface_property avalon_slave_0 linewrapBursts false
 set_interface_property avalon_slave_0 maximumPendingReadTransactions 0
@@ -118,7 +118,7 @@ set_interface_property avalon_slave_0 SVD_ADDRESS_GROUP ""
 add_interface_port avalon_slave_0 avs_chipselect chipselect Input 1
 add_interface_port avalon_slave_0 avs_read read Input 1
 add_interface_port avalon_slave_0 avs_write write Input 1
-add_interface_port avalon_slave_0 avs_address address Input 5
+add_interface_port avalon_slave_0 avs_address address Input 16
 add_interface_port avalon_slave_0 avs_writedata writedata Input 32
 add_interface_port avalon_slave_0 avs_readdata readdata Output 32
 set_interface_assignment avalon_slave_0 embeddedsw.configuration.isFlash 0
@@ -147,4 +147,3 @@ add_interface_port vga vga_vs vga_vs Output 1
 add_interface_port vga vga_clk vga_clk Output 1
 add_interface_port vga vga_blank_n vga_blank_n Output 1
 add_interface_port vga vga_sync_n vga_sync_n Output 1
-

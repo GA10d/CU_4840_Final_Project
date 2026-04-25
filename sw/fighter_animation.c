@@ -14,6 +14,8 @@
 
 #define FIGHTER_DEFAULT_RYU_ROOT "/root/game_assets/sprites/RyuPPM"
 #define FIGHTER_DEFAULT_KEN_ROOT "/root/game_assets/sprites/KenPPM"
+#define FIGHTER_REPO_RYU_ROOT "../game_assets/sprites/RyuPPM"
+#define FIGHTER_REPO_KEN_ROOT "../game_assets/sprites/KenPPM"
 
 typedef struct {
   char **items;
@@ -420,6 +422,22 @@ static int fighter_join_path(char *out_path,
   return 0;
 }
 
+static int fighter_directory_exists(const char *path) {
+  DIR *dir;
+
+  if (!path) {
+    return 0;
+  }
+
+  dir = opendir(path);
+  if (!dir) {
+    return 0;
+  }
+
+  closedir(dir);
+  return 1;
+}
+
 static int fighter_try_load_clip(const char *base_root,
                                  const char *relative_dir,
                                  int ticks_per_frame,
@@ -641,9 +659,31 @@ static void fighter_animation_state_advance(
 }
 
 int fighter_animation_system_init(fighter_animation_system_t *system) {
+  const char *asset_root = getenv("FIGHTER_ASSET_ROOT");
+  char ryu_root[PATH_MAX];
+  char ken_root[PATH_MAX];
+
+  if (asset_root && asset_root[0] != '\0') {
+    if (snprintf(ryu_root, sizeof(ryu_root), "%s/sprites/RyuPPM", asset_root) >=
+            (int)sizeof(ryu_root) ||
+        snprintf(ken_root, sizeof(ken_root), "%s/sprites/KenPPM", asset_root) >=
+            (int)sizeof(ken_root)) {
+      return -1;
+    }
+    return fighter_animation_system_init_with_roots(system, ryu_root, ken_root);
+  }
+
+  if (fighter_directory_exists(FIGHTER_DEFAULT_RYU_ROOT) &&
+      fighter_directory_exists(FIGHTER_DEFAULT_KEN_ROOT) &&
+      fighter_animation_system_init_with_roots(system,
+                                               FIGHTER_DEFAULT_RYU_ROOT,
+                                               FIGHTER_DEFAULT_KEN_ROOT) == 0) {
+    return 0;
+  }
+
   return fighter_animation_system_init_with_roots(system,
-                                                  FIGHTER_DEFAULT_RYU_ROOT,
-                                                  FIGHTER_DEFAULT_KEN_ROOT);
+                                                  FIGHTER_REPO_RYU_ROOT,
+                                                  FIGHTER_REPO_KEN_ROOT);
 }
 
 int fighter_animation_system_init_with_roots(fighter_animation_system_t *system,
