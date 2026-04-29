@@ -1,0 +1,956 @@
+\documentclass[12pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[margin=1in]{geometry}
+\usepackage{array}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{longtable}
+\usepackage{tabularx}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{float}
+\usepackage{graphicx}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue,
+  urlcolor=blue,
+  citecolor=blue
+}
+
+\lstdefinestyle{fighterstyle}{
+  basicstyle=\ttfamily\small,
+  breaklines=true,
+  columns=fullflexible,
+  frame=single,
+  backgroundcolor=\color{gray!5}
+}
+
+\title{Final Project Design Document}
+\author{}
+\date{April 28, 2026}
+
+\begin{document}
+
+\maketitle
+
+This document matches the current repository state as of April 28, 2026.
+Compared with the earlier draft, the most important change is that the
+project no longer treats FPGA VGA as only future work. The current hardware
+build includes both a custom FPGA VGA renderer and a custom WM8731
+audio peripheral, each exposed to HPS Linux through the lightweight
+HPS-to-FPGA bridge and accessed from user space through \texttt{/dev/mem}.
+
+\section{Introduction and Overview}
+
+\subsection{Project Summary}
+
+This project implements a two-player fighting game prototype on the
+\texttt{DE1-SoC} platform. The current system combines HPS-side game logic
+with FPGA-side video and audio output:
+
+\begin{itemize}
+  \item The \texttt{HPS} side in C handles USB keyboard input, game-state
+  updates, collision and damage logic, animation selection, software scene
+  composition, audio command scheduling, and MMIO access.
+  \item The primary video path is now the FPGA VGA renderer
+  \texttt{fighter\_vga\_renderer}, not the Linux \texttt{/dev/fb0}
+  framebuffer. HPS writes \texttt{320x240} RGB565 frame data through
+  Avalon-MM. The FPGA owns VGA timing, display buffering, RGB output, and
+  vblank-safe double-buffer swaps.
+  \item The video code still includes fallbacks to Linux framebuffer devices
+  such as \texttt{/dev/fb0} and to console output when the FPGA VGA path is
+  unavailable.
+  \item The FPGA side implements a \texttt{WM8731} audio peripheral,
+  \texttt{fighter\_audio\_wm8731}, with FIFO-backed sample writes, I2C codec
+  initialization, and serial DAC output.
+  \item The software still contains \texttt{fighter\_mmio\_encode()}, which
+  packs game state into 22 words. In the current hardware design, however, the
+  implemented VGA IP accepts MMIO frame data rather than directly consuming
+  those 22 game-state words.
+\end{itemize}
+
+\subsection{Relationship Between Current Implementation and Target Architecture}
+
+\begin{longtable}{>{\raggedright\arraybackslash}p{0.28\textwidth} >{\raggedright\arraybackslash}p{0.18\textwidth} >{\raggedright\arraybackslash}p{0.42\textwidth}}
+\toprule
+Layer & Current Status & Notes \\
+\midrule
+\endhead
+Dual USB keyboard input & Implemented & \texttt{libusb} polling for up to two HID boot keyboards when \texttt{libusb-1.0} is available \\
+Fighting game state machine & Implemented & Menu, match, game over, KO, timeout, exit, blocking, projectiles, hit and block resolution \\
+Animation and assets & Implemented & Ryu and Ken PPM sprite sets, background image, menu images, and fireball projectiles \\
+FPGA VGA renderer & Implemented & \texttt{fighter\_vga\_renderer} at default physical address \texttt{0xFF240000}; this is the main display path \\
+Linux framebuffer / console video fallback & Implemented & Used only if VGA MMIO probing fails or if console mode is requested \\
+FPGA audio peripheral & Implemented & \texttt{fighter\_audio\_wm8731} at default physical address \texttt{0xFF200000} \\
+Game-state MMIO encoder & Implemented in software & Exports 22 32-bit words, but current VGA hardware uses a framebuffer protocol instead \\
+Linux kernel driver & Not implemented & Current board access is through user-space \texttt{/dev/mem} and optional \texttt{/dev/fb*} \\
+\bottomrule
+\end{longtable}
+
+\subsection{Assumptions and Constraints}
+
+\begin{itemize}
+  \item The target board is \texttt{DE1-SoC}.
+  \item The system assumes up to two USB keyboards by default.
+  \item The default input mapping is \texttt{W/A/S/D/J/K/L}.
+  \item The main logic runs at approximately 60 FPS.
+  \item The game coordinate system is \texttt{640x480}. The FPGA framebuffer
+  is \texttt{320x240} and is doubled to \texttt{640x480} by hardware.
+  \item The current design uses direct user-space physical memory mapping
+  instead of a Linux kernel driver.
+\end{itemize}
+
+\section{Top-Level System Block Diagram}
+
+\subsection{Actual Current Data Path}
+
+\begin{lstlisting}[style=fighterstyle]
+USB Keyboard 1/2
+      |
+      v
+usb_hid_keyboard.c  (libusb, up to 2 devices)
+      |
+      v
+fighter_input.c
+      |
+      v
+fighter_game.c  -----> fighter_animation.c
+      |                         |
+      | game state              | current sprites
+      v                         v
+fighter_renderer.c  ----------------------------+
+      |                                         |
+      | RGB565 frame writes through MMIO        |
+      v                                         |
+/dev/mem + lw HPS-to-FPGA bridge                |
+      |                                         |
+      v                                         |
+fighter_vga_renderer (FPGA VGA renderer)        |
+      |                                         |
+      | VGA timing / buffer swap / RGB output   |
+      v                                         |
+VGA_R/G/B, HS, VS, CLK                          |
+
+fighter_game.c
+      |
+      | audio commands
+      v
+fighter_audio.c
+      |
+      +--> /dev/mem + lw bridge --> fighter_audio_wm8731 --> WM8731
+      |
+      +--> command backend fallback when MMIO audio is unavailable
+\end{lstlisting}
+
+\subsection{Platform Address Map}
+
+\texttt{hw/soc\_system.qsys} connects both project-specific peripherals to
+the HPS lightweight bridge. With the standard lightweight bridge physical
+base of \texttt{0xFF200000}, the current software defaults are:
+
+\begin{longtable}{>{\raggedright\arraybackslash}p{0.22\textwidth} >{\raggedright\arraybackslash}p{0.20\textwidth} >{\raggedright\arraybackslash}p{0.22\textwidth} >{\raggedright\arraybackslash}p{0.24\textwidth}}
+\toprule
+IP Instance & Qsys Base & Linux Physical Address & Override Variable \\
+\midrule
+\endhead
+\texttt{fighter\_audio\_0} & \texttt{0x0000} & \texttt{0xFF200000} & \texttt{FIGHTER\_AUDIO\_MMIO\_ADDR} \\
+\texttt{fighter\_vga\_0} & \texttt{0x40000} & \texttt{0xFF240000} & \texttt{FIGHTER\_VGA\_MMIO\_ADDR} \\
+\bottomrule
+\end{longtable}
+
+Both VGA and audio software also access the HPS bridge reset register at
+\texttt{0xFFD0501C}. The software clears bits \texttt{[1:0]} to enable the
+HPS-FPGA bridge before probing the custom IP.
+
+\subsection{Image and Audio Assets}
+
+Game images and sounds are stored as normal files in the HPS Linux filesystem.
+They are not compiled into the FPGA bitstream. The main VGA path is still the
+custom FPGA VGA renderer: HPS writes RGB565 frame data through MMIO, and the
+FPGA handles VGA timing, buffer swapping, and RGB output. For audio, HPS writes
+PCM samples into audio MMIO FIFOs, and the FPGA drives the WM8731.
+
+\begin{table}[H]
+\footnotesize
+\setlength{\tabcolsep}{4pt}
+\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{0.20\textwidth} >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}p{0.22\textwidth}}
+\toprule
+Asset Type & Repository Path & Runtime Loader \\
+\midrule
+Ryu sprites & \path|game_assets/sprites/RyuPPM/*/*.ppm| & \path|fighter_animation.c| \\
+Ken sprites & \path|game_assets/sprites/KenPPM/*/*.ppm| & \path|fighter_animation.c| \\
+Fireball sprites & \path|game_assets/sprites/*PPM/fireball/*.ppm| or \path|attack_fireball/*.ppm| & \path|fighter_animation.c| \\
+Background & \path|game_assets/background/background.ppm| & \path|fighter_renderer.c| \\
+Menu frames & \path|game_assets/ui/menu/menu_frame_0.ppm| and \path|menu_frame_1.ppm| & \path|fighter_renderer.c| \\
+Menu BGM & \path|game_assets/sound effects/Title.wav| & \path|fighter_audio.c| \\
+Confirm sound & \path|game_assets/sound effects/Credit.wav| & \path|fighter_audio.c| \\
+Game-over sound & \path|game_assets/sound effects/Game Over.wav| & \path|fighter_audio.c| \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+The full loader source paths are \texttt{sw/fighter\_animation.c},
+\texttt{sw/render\_if/fighter\_renderer.c}, and
+\texttt{sw/audio/fighter\_audio.c}.
+
+The runtime asset search rules are:
+
+\begin{itemize}
+  \item If \texttt{FIGHTER\_ASSET\_ROOT} is set, animation code uses
+  \texttt{\$FIGHTER\_ASSET\_ROOT/sprites/RyuPPM} and
+  \texttt{\$FIGHTER\_ASSET\_ROOT/sprites/KenPPM}. The renderer uses the same
+  root for background and menu images.
+  \item If \texttt{FIGHTER\_ASSET\_ROOT} is not set, animation first tries
+  \texttt{/root/game\_assets/sprites/RyuPPM} and
+  \texttt{/root/game\_assets/sprites/KenPPM}, then falls back to the repository
+  relative paths \texttt{../game\_assets/sprites/RyuPPM} and
+  \texttt{../game\_assets/sprites/KenPPM}.
+  \item Background/menu loading similarly tries \texttt{FIGHTER\_ASSET\_ROOT},
+  \texttt{/root/game\_assets}, and \texttt{../game\_assets}.
+  \item The current WAV path function returns repository-relative paths under
+  \texttt{../game\_assets/sound effects}. The MMIO audio backend opens them
+  with \texttt{fopen()}, parses RIFF/WAVE chunks, accepts PCM16 mono or stereo,
+  and resamples to the software target rate of \texttt{48000} Hz.
+\end{itemize}
+
+PPM image loading supports both \texttt{P6} binary and \texttt{P3} ASCII PPM.
+The software stores decoded pixels as 24-bit RGB in heap memory. When drawing
+to the FPGA VGA backend, the renderer packs the final composed frame into
+RGB565 words and writes those words through MMIO.
+
+\section{Custom Peripheral Register Maps}
+
+\subsection{Implemented VGA MMIO Contract}
+
+The current video hardware source is \texttt{hw/fighter\_vga\_renderer.sv},
+packaged by \texttt{hw/fighter\_vga\_hw.tcl}. Its Avalon-MM interface uses
+32-bit data and word-based addresses. Software therefore accesses
+\texttt{regs[n]} for Avalon word offset \texttt{n}.
+
+\begin{longtable}{>{\raggedright\arraybackslash}p{0.15\textwidth} >{\raggedright\arraybackslash}p{0.12\textwidth} >{\raggedright\arraybackslash}p{0.14\textwidth} >{\raggedright\arraybackslash}p{0.47\textwidth}}
+\toprule
+Avalon Signal & Width & Direction & Meaning \\
+\midrule
+\endhead
+\texttt{avs\_chipselect} & 1 & HPS to FPGA & Selects this slave for the current transaction \\
+\texttt{avs\_read} & 1 & HPS to FPGA & Indicates a register read transaction \\
+\texttt{avs\_write} & 1 & HPS to FPGA & Indicates a register or framebuffer write transaction \\
+\texttt{avs\_address} & 16 & HPS to FPGA & 32-bit word offset; \texttt{0}, \texttt{1}, \texttt{2}, etc., not byte address \\
+\texttt{avs\_writedata} & 32 & HPS to FPGA & Control word or two packed RGB565 pixels \\
+\texttt{avs\_readdata} & 32 & FPGA to HPS & Control/status, geometry, ident, or zero for unmapped addresses \\
+\bottomrule
+\end{longtable}
+
+\begin{longtable}{>{\raggedright\arraybackslash}p{0.14\textwidth} >{\raggedright\arraybackslash}p{0.22\textwidth} >{\raggedright\arraybackslash}p{0.10\textwidth} >{\raggedright\arraybackslash}p{0.40\textwidth}}
+\toprule
+Word Offset & Register & R/W & Description \\
+\midrule
+\endhead
+\texttt{0} & \texttt{REG\_CONTROL} & RW & Status and frame-swap control \\
+\texttt{1} & \texttt{REG\_WIDTH} & R & Returns framebuffer width \texttt{320} \\
+\texttt{2} & \texttt{REG\_HEIGHT} & R & Returns framebuffer height \texttt{240} \\
+\texttt{3} & \texttt{REG\_STRIDE} & R & Returns row stride \texttt{640} bytes \\
+\texttt{31} & \texttt{REG\_IDENT} & R & Returns \texttt{0x56504741}, ASCII \texttt{"VPGA"} \\
+\texttt{1024..39423} & frame input window & W & RGB565 frame data for the FPGA VGA renderer, two pixels per 32-bit word \\
+\bottomrule
+\end{longtable}
+
+\noindent \texttt{REG\_CONTROL} read bits:
+
+\begin{itemize}
+  \item \texttt{bit0}: IP present, fixed to \texttt{1}
+  \item \texttt{bit1}: swap pending
+  \item \texttt{bit8}: current display buffer
+  \item \texttt{bit9}: current software write buffer
+\end{itemize}
+
+\noindent \texttt{REG\_CONTROL} write bits:
+
+\begin{itemize}
+  \item \texttt{bit1}: swap request. Software writes this after filling a full
+  frame. Hardware performs the buffer swap at vblank and then clears
+  \texttt{swap\_pending}.
+\end{itemize}
+
+\subsection{VGA Framebuffer Format}
+
+\begin{itemize}
+  \item Framebuffer width: \texttt{320} pixels
+  \item Framebuffer height: \texttt{240} pixels
+  \item Pixel format: RGB565
+  \item Pixels per 32-bit word: \texttt{2}
+  \item Framebuffer words: \texttt{38400}
+  \item Framebuffer start word offset: \texttt{1024}
+  \item Total software mapping span: \texttt{39424 * 4 = 157696} bytes
+\end{itemize}
+
+\begin{lstlisting}[style=fighterstyle]
+word[15:0]  = first RGB565 pixel
+word[31:16] = second RGB565 pixel
+\end{lstlisting}
+
+The FPGA output timing is standard \texttt{640x480}. Internally, the renderer
+uses the 50 MHz board clock, toggles a pixel tick to generate approximately
+25 MHz pixel timing, and maps each framebuffer source pixel to a \texttt{2x2}
+area on the VGA output.
+
+\subsection{FPGA VGA Renderer Transaction Protocol}
+
+The VGA backend in \texttt{sw/render\_if/fighter\_renderer.c} uses the
+following protocol:
+
+\begin{enumerate}
+  \item Open \texttt{/dev/mem}.
+  \item Map the HPS bridge reset register at \texttt{0xFFD0501C} and clear
+  bits \texttt{[1:0]}.
+  \item Map the VGA MMIO span at \texttt{FIGHTER\_VGA\_MMIO\_ADDR}, default
+  \texttt{0xFF240000}.
+  \item Read \texttt{regs[31]} and require \texttt{0x56504741}
+  (\texttt{"VPGA"}).
+  \item Read \texttt{regs[1]}, \texttt{regs[2]}, and \texttt{regs[3]} and
+  require \texttt{320}, \texttt{240}, and \texttt{640}.
+  \item Before writing a new frame, poll \texttt{regs[0] bit1} until
+  \texttt{swap\_pending} is clear.
+  \item Pack every two RGB565 pixels into one 32-bit word, and write
+  \texttt{38400} words starting at \texttt{regs[1024]}.
+  \item Write \texttt{regs[0] = 0x00000002}. The FPGA VGA renderer flips the
+  display buffer on the next vblank and continues generating VGA timing and
+  RGB output.
+\end{enumerate}
+
+\subsection{VGA Pins}
+
+\begin{longtable}{>{\raggedright\arraybackslash}p{0.18\textwidth} >{\raggedright\arraybackslash}p{0.12\textwidth} >{\raggedright\arraybackslash}p{0.12\textwidth} >{\raggedright\arraybackslash}p{0.44\textwidth}}
+\toprule
+Port & Width & Direction & Data \\
+\midrule
+\endhead
+\texttt{vga\_r} & 8 & output & Red channel, expanded from RGB565 red bits \\
+\texttt{vga\_g} & 8 & output & Green channel, expanded from RGB565 green bits \\
+\texttt{vga\_b} & 8 & output & Blue channel, expanded from RGB565 blue bits \\
+\texttt{vga\_hs} & 1 & output & Active-low horizontal sync \\
+\texttt{vga\_vs} & 1 & output & Active-low vertical sync \\
+\texttt{vga\_clk} & 1 & output & Pixel clock derived by toggling at 50 MHz input clock \\
+\texttt{vga\_blank\_n} & 1 & output & High during visible region \\
+\texttt{vga\_sync\_n} & 1 & output & Fixed low for the DE1-SoC VGA DAC \\
+\bottomrule
+\end{longtable}
+
+\subsection{Implemented Audio MMIO Contract}
+
+The current audio hardware source is \texttt{hw/fighter\_audio.sv}, module
+\texttt{fighter\_audio\_wm8731}, packaged by
+\texttt{hw/fighter\_audio\_hw.tcl}. The default physical address is
+\texttt{0xFF200000}.
+
+\begin{longtable}{>{\raggedright\arraybackslash}p{0.15\textwidth} >{\raggedright\arraybackslash}p{0.12\textwidth} >{\raggedright\arraybackslash}p{0.14\textwidth} >{\raggedright\arraybackslash}p{0.47\textwidth}}
+\toprule
+Avalon Signal & Width & Direction & Meaning \\
+\midrule
+\endhead
+\texttt{avs\_chipselect} & 1 & HPS to FPGA & Selects this audio slave \\
+\texttt{avs\_read} & 1 & HPS to FPGA & Reads \texttt{control}, \texttt{fifospace}, or zero from sample ports \\
+\texttt{avs\_write} & 1 & HPS to FPGA & Writes clear commands or sample words \\
+\texttt{avs\_address} & 2 & HPS to FPGA & 32-bit word offset \texttt{0..3} \\
+\texttt{avs\_writedata} & 32 & HPS to FPGA & Control clear bits or \texttt{int16} sample in upper halfword \\
+\texttt{avs\_readdata} & 32 & FPGA to HPS & Status and FIFO-space fields \\
+\bottomrule
+\end{longtable}
+
+\begin{longtable}{>{\raggedright\arraybackslash}p{0.12\textwidth} >{\raggedright\arraybackslash}p{0.18\textwidth} >{\raggedright\arraybackslash}p{0.08\textwidth} >{\raggedright\arraybackslash}p{0.48\textwidth}}
+\toprule
+Word Offset & Name & R/W & Description \\
+\midrule
+\endhead
+\texttt{0} & \texttt{control} & RW & Read FIFO and codec status; write clear commands \\
+\texttt{1} & \texttt{fifospace} & R & \texttt{[31:24]} left write space, \texttt{[23:16]} right write space \\
+\texttt{2} & \texttt{leftdata} & W & Left-channel sample word; software writes \texttt{int16 << 16} \\
+\texttt{3} & \texttt{rightdata} & W & Right-channel sample word; software writes \texttt{int16 << 16} \\
+\bottomrule
+\end{longtable}
+
+\noindent The current \texttt{control} read word uses:
+
+\begin{itemize}
+  \item \texttt{bit0}: \texttt{codec\_init\_done}
+  \item \texttt{bit1}: \texttt{codec\_init\_error}
+  \item \texttt{bit2}: \texttt{tx\_underflow\_seen}
+  \item \texttt{bit3}: \texttt{write\_overflow\_seen}
+  \item \texttt{bits[15:8]}: \texttt{right\_count}
+  \item \texttt{bits[23:16]}: \texttt{left\_count}
+\end{itemize}
+
+\noindent The \texttt{control} write word uses:
+
+\begin{itemize}
+  \item \texttt{bit2}: clear read/playback-side FIFO state
+  \item \texttt{bit3}: clear write-side FIFO state
+\end{itemize}
+
+\subsection{Audio Software-Hardware Transaction Protocol}
+
+The MMIO audio backend in \texttt{sw/audio/fighter\_audio.c} operates as:
+
+\begin{enumerate}
+  \item Open \texttt{/dev/mem}.
+  \item Map the HPS bridge reset register at \texttt{0xFFD0501C} and clear
+  bits \texttt{[1:0]}.
+  \item Map four 32-bit words at \texttt{FIGHTER\_AUDIO\_MMIO\_ADDR}, default
+  \texttt{0xFF200000}.
+  \item Write \texttt{control bit2 | bit3}, then write zero, to clear FIFO and
+  sticky status.
+  \item Read \texttt{fifospace}. A valid peripheral reports nonzero left and
+  right write space.
+  \item Load WAV assets from the filesystem, parse RIFF chunks, convert PCM16
+  mono/stereo to the internal stereo stream, and resample toward
+  \texttt{48000} Hz.
+  \item A worker thread polls \texttt{fifospace}; when both channels have room,
+  it writes the left sample to \texttt{regs[2]} and right sample to
+  \texttt{regs[3]}.
+\end{enumerate}
+
+\subsection{Audio Pins}
+
+\begin{longtable}{>{\raggedright\arraybackslash}p{0.20\textwidth} >{\raggedright\arraybackslash}p{0.10\textwidth} >{\raggedright\arraybackslash}p{0.12\textwidth} >{\raggedright\arraybackslash}p{0.44\textwidth}}
+\toprule
+Port & Width & Direction & Data \\
+\midrule
+\endhead
+\texttt{aud\_xck} & 1 & output & WM8731 master clock, default \texttt{12.5 MHz} \\
+\texttt{aud\_bclk} & 1 & output & Audio bit clock, default \texttt{3.125 MHz} \\
+\texttt{aud\_daclrck} & 1 & output & DAC left/right word-select clock \\
+\texttt{aud\_adclrck} & 1 & output & ADC left/right word-select clock, synchronized to DAC LRCK \\
+\texttt{aud\_dacdat} & 1 & output & Left-justified serial DAC sample bitstream \\
+\texttt{aud\_adcdat} & 1 & input & ADC serial data input; present but not consumed by current software \\
+\texttt{fpga\_i2c\_sclk} & 1 & bidir & Open-drain style I2C SCL for codec initialization \\
+\texttt{fpga\_i2c\_sdat} & 1 & bidir & Open-drain style I2C SDA for codec initialization and ACK sampling \\
+\texttt{codec\_init\_done} & 1 & output & Codec initialization completed; also routed to \texttt{LEDR[0]} \\
+\texttt{codec\_init\_error} & 1 & output & Codec initialization failed; also routed to \texttt{LEDR[1]} \\
+\bottomrule
+\end{longtable}
+
+\subsection{Software Game-State MMIO Encoder}
+
+\texttt{sw/render\_if/fighter\_mmio.c} still implements
+\texttt{fighter\_mmio\_encode()}, and \texttt{sw/include/fighter\_mmio.h}
+still defines a 22-word game-state register layout. This contract is useful
+for tests and for a possible future hardware sprite engine, but it is not the
+register map consumed by the current framebuffer VGA IP.
+
+\begin{longtable}{>{\raggedright\arraybackslash}p{0.12\textwidth} >{\raggedright\arraybackslash}p{0.28\textwidth} >{\raggedright\arraybackslash}p{0.48\textwidth}}
+\toprule
+Offset & Register & Software Encoding Meaning \\
+\midrule
+\endhead
+\texttt{0x00} & \texttt{GAME\_STATE} & \texttt{bit[1:0]} menu/playing/game-over, \texttt{bit8} menu frame, \texttt{bit9} game-over ready \\
+\texttt{0x04} & \texttt{PLAYER1\_X} & Player 1 top-left x coordinate \\
+\texttt{0x08} & \texttt{PLAYER1\_Y} & Player 1 top-left y coordinate \\
+\texttt{0x0C} & \texttt{PLAYER1\_STATE} & Player 1 visual state \\
+\texttt{0x10} & \texttt{PLAYER2\_X} & Player 2 top-left x coordinate \\
+\texttt{0x14} & \texttt{PLAYER2\_Y} & Player 2 top-left y coordinate \\
+\texttt{0x18} & \texttt{PLAYER2\_STATE} & Player 2 visual state \\
+\texttt{0x1C} & \texttt{PLAYER1\_HP} & Player 1 HP \\
+\texttt{0x20} & \texttt{PLAYER2\_HP} & Player 2 HP \\
+\texttt{0x24} & \texttt{ROUND\_TIMER} & Remaining seconds \\
+\texttt{0x28} & \texttt{WINNER} & Winner enum \\
+\texttt{0x2C} & \texttt{PLAYER1\_FACING} & \texttt{1 = right}, \texttt{0 = left} \\
+\texttt{0x30} & \texttt{PLAYER2\_FACING} & \texttt{1 = right}, \texttt{0 = left} \\
+\texttt{0x34} & \texttt{DEBUG\_FLAGS} & Last attacks and attack phases \\
+\texttt{0x38} & \texttt{PLAYER1\_ATTACK\_CMD} & Player 1 last attack command \\
+\texttt{0x3C} & \texttt{PLAYER2\_ATTACK\_CMD} & Player 2 last attack command \\
+\texttt{0x40} & \texttt{PLAYER1\_STATE\_FRAME} & Frames spent in current visual state \\
+\texttt{0x44} & \texttt{PLAYER2\_STATE\_FRAME} & Frames spent in current visual state \\
+\texttt{0x48} & \texttt{PLAYER1\_EVENT\_FLAGS} & Per-frame event pulses \\
+\texttt{0x4C} & \texttt{PLAYER2\_EVENT\_FLAGS} & Per-frame event pulses \\
+\texttt{0x50} & \texttt{PLAYER1\_COMBAT\_RESULT} & None, hit, blocked, trade, or whiff \\
+\texttt{0x54} & \texttt{PLAYER2\_COMBAT\_RESULT} & None, hit, blocked, trade, or whiff \\
+\bottomrule
+\end{longtable}
+
+\section{Detailed Hardware Design}
+
+\subsection{Top-Level Hardware Structure}
+
+The board-level top module is \texttt{hw/soc\_system\_top.sv}. The current
+project-relevant connections are:
+
+\begin{itemize}
+  \item \texttt{soc\_system} provides the HPS skeleton and lightweight bridge.
+  \item \texttt{fighter\_audio\_0} is exported through the audio conduit and
+  wired to \texttt{AUD\_*} and \texttt{FPGA\_I2C\_*} pins.
+  \item \texttt{audio\_init\_done} and \texttt{audio\_init\_error} are mapped
+  to \texttt{LEDR[0]} and \texttt{LEDR[1]}.
+  \item \texttt{fighter\_vga\_0} is exported through the VGA conduit and wired
+  to \texttt{VGA\_R/G/B}, \texttt{VGA\_HS}, \texttt{VGA\_VS},
+  \texttt{VGA\_CLK}, \texttt{VGA\_BLANK\_N}, and \texttt{VGA\_SYNC\_N}.
+\end{itemize}
+
+\subsection{Hardware Module Responsibilities}
+
+\begin{table}[H]
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{0.31\textwidth} >{\raggedright\arraybackslash}X}
+\toprule
+Module & Responsibility \\
+\midrule
+\path|soc_system_top| & Board-level wrapper. It connects DE1-SoC pins to the generated Platform Designer system, routes VGA/audio conduits, maps codec status to LEDs, and ties unused board outputs to simple quiet values. \\
+\path|soc_system| & Platform Designer system. It contains the HPS, lightweight HPS-to-FPGA AXI master, interconnect, reset controllers, \path|fighter_vga_0|, and \path|fighter_audio_0|. \\
+\path|soc_system_mm_interconnect_0| & Avalon-MM interconnect generated by Platform Designer. It decodes lightweight bridge addresses and forwards reads/writes to the selected custom IP. \\
+\path|fighter_vga_renderer| & Custom VGA IP. It exposes geometry/control registers, accepts framebuffer writes, tracks display/write buffers, generates VGA timing, and outputs 8-bit RGB plus sync signals. \\
+\path|fighter_audio_wm8731| & Custom audio IP. It exposes a 4-word register map, queues left/right samples in FIFOs, initializes the WM8731 by I2C, derives audio clocks, and serializes samples to the DAC. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Register Versus BRAM Implementation}
+
+The design contains three different kinds of state, and they synthesize
+differently:
+
+\begin{itemize}
+  \item Small control/status values such as \texttt{swap\_pending},
+  \texttt{display\_buffer}, VGA counters, audio FIFO pointers, FIFO counts,
+  and I2C state are normal flip-flop registers.
+  \item Audio sample storage is inferred as BRAM. The Quartus map/fitter
+  reports show \texttt{left\_fifo\_rtl\_0} and \texttt{right\_fifo\_rtl\_0} as
+  \texttt{altsyncram} simple dual-port RAMs, each \texttt{128 x 32} bits. Each
+  FIFO uses one M10K block, so audio uses two M10K blocks total.
+  \item The source version of \path|fighter_vga_renderer.sv| describes two
+  framebuffer RAM banks with \texttt{altsyncram}. The current Quartus fit
+  report, \path|hw/output_files/soc_system.fit.rpt|, reports zero M10Ks under
+  \path|fighter_vga_renderer| and only two M10Ks total, both under the audio
+  FIFOs. Therefore the current compiled resource report confirms BRAM for
+  audio FIFOs, not a full synthesized on-chip VGA framebuffer. The
+  software/hardware register protocol is still documented above because it is
+  the intended VGA IP contract in the source tree.
+\end{itemize}
+
+\subsection{Internal Structure of \texttt{fighter\_vga\_renderer}}
+
+\begin{lstlisting}[style=fighterstyle]
+Avalon-MM Slave
+  |
+  +--> control / geometry / ident registers
+  +--> framebuffer write window
+          |
+          v
+     dual M10K framebuffer banks
+          |
+          v
+     vblank-safe buffer swap
+          |
+          v
+     640x480 VGA timing and 2x scaling
+          |
+          v
+     RGB565 to 8-bit VGA RGB output
+\end{lstlisting}
+
+The module uses two framebuffer banks. Software always writes the bank that is
+not currently displayed. After a full frame is written, software writes
+\texttt{CONTROL\_SWAP\_REQUEST}; hardware flips the displayed bank at the
+start of vertical blanking.
+
+\subsection{Internal Structure of \texttt{fighter\_audio\_wm8731}}
+
+\begin{lstlisting}[style=fighterstyle]
+Avalon-MM Slave
+  |
+  +--> control / status
+  +--> left FIFO
+  +--> right FIFO
+          |
+          v
+     sample serializer ------> AUD_DACDAT
+          |
+          +--> clock dividers ---> AUD_XCK / AUD_BCLK / AUD_DACLRCK / AUD_ADCLRCK
+
+I2C init FSM -----------------> FPGA_I2C_SCLK / FPGA_I2C_SDAT
+                                |
+                                v
+                              WM8731
+\end{lstlisting}
+
+\subsection{Audio Peripheral Timing and Protocol}
+
+\texttt{fighter\_audio\_wm8731} operates in a single 50 MHz clock domain.
+With default parameters:
+
+\begin{itemize}
+  \item \texttt{aud\_xck = clk / 4 = 12.5 MHz}
+  \item \texttt{aud\_bclk = clk / 16 = 3.125 MHz}
+  \item \texttt{lrck = clk / 1024 = 48.828125 kHz}
+\end{itemize}
+
+The codec is configured for left-justified format, 16-bit samples, slave mode,
+DAC playback enabled, and active output.
+
+\section{Software Interfaces}
+
+\subsection{Core Game Interface}
+
+\texttt{sw/include/fighter\_game.h} defines the game data model.
+
+Key enumerations include:
+
+\begin{itemize}
+  \item \texttt{fighter\_game\_state\_t}: \texttt{MENU / PLAYING / GAME\_OVER}
+  \item \texttt{fighter\_character\_id\_t}: \texttt{RYU / KEN}
+  \item \texttt{fighter\_visual\_state\_t}: includes \texttt{IDLE},
+  \texttt{WALK}, \texttt{JUMP}, \texttt{CROUCH}, \texttt{GUARD},
+  \texttt{ATTACK}, \texttt{HIT}, \texttt{BLOCK\_STUN}, \texttt{KO},
+  \texttt{VICTORY}, and \texttt{CROUCH\_GUARD}
+  \item \texttt{fighter\_attack\_phase\_t}: \texttt{NONE}, \texttt{STARTUP},
+  \texttt{ACTIVE}, \texttt{HIT\_CONFIRM}, \texttt{BLOCK\_CONFIRM},
+  \texttt{RECOVERY}
+  \item \texttt{fighter\_winner\_t} and \texttt{fighter\_finish\_reason\_t}
+\end{itemize}
+
+The default configuration uses \texttt{640x480}, floor \texttt{y = 400},
+player size \texttt{48x96}, projectile size \texttt{28x20}, projectile speed
+\texttt{6}, walk speed \texttt{3}, jump velocity \texttt{-14}, gravity
+\texttt{1}, max HP \texttt{100}, and round duration \texttt{99 * 60} frames.
+
+\subsection{Input Interface}
+
+\texttt{sw/include/fighter\_input.h} defines the input parsing layer.
+
+The default key mapping is:
+
+\begin{itemize}
+  \item \texttt{W}: jump
+  \item \texttt{A}: move left
+  \item \texttt{D}: move right
+  \item \texttt{S}: crouch
+  \item \texttt{J}: attack
+  \item \texttt{K}: guard
+  \item \texttt{L}: exit the current match
+\end{itemize}
+
+Attack combinations are decoded in software:
+
+\begin{itemize}
+  \item \texttt{J}: normal attack
+  \item \texttt{A + J}: fireball
+  \item \texttt{D + J}: dragon punch
+  \item \texttt{W + J}: jump attack
+  \item \texttt{W + D + J}: forward jump attack
+  \item \texttt{W + A + J}: back jump attack
+  \item \texttt{S + J}: sweep
+\end{itemize}
+
+\subsection{Rendering Interface}
+
+\texttt{sw/include/fighter\_renderer.h} defines three renderer backends:
+
+\begin{itemize}
+  \item \texttt{FIGHTER\_RENDERER\_BACKEND\_MMIO}: FPGA VGA framebuffer IP
+  \item \texttt{FIGHTER\_RENDERER\_BACKEND\_FRAMEBUFFER}: Linux framebuffer fallback
+  \item \texttt{FIGHTER\_RENDERER\_BACKEND\_CONSOLE}: debug console fallback
+\end{itemize}
+
+On Linux, \texttt{fighter\_renderer\_init()} tries the MMIO VGA backend first
+when framebuffer-style output is preferred. It then falls back to
+\texttt{/dev/fb0}, \texttt{/dev/fb1}, or console output. The renderer loads
+menu PPMs, a background PPM, and character sprites from \texttt{game\_assets},
+with \texttt{FIGHTER\_ASSET\_ROOT} available as an override.
+
+\subsection{Audio Interface}
+
+\texttt{sw/include/fighter\_audio.h} defines command-based audio playback.
+
+The current tracks are:
+
+\begin{itemize}
+  \item \texttt{MENU\_BGM}
+  \item \texttt{MENU\_CONFIRM}
+  \item \texttt{GAME\_OVER}
+\end{itemize}
+
+The supported command types are \texttt{PLAY\_ONCE}, \texttt{START\_LOOP},
+and \texttt{STOP\_LOOP}. Audio is disabled by default in the demo. It is
+initialized when \texttt{phase1\_demo --audio} or \texttt{input\_demo --audio}
+is used. Backend selection is \texttt{WM8731/MMIO} first, then command-line
+player fallback, then disabled.
+
+\subsection{USB Keyboard Capture Interface}
+
+\texttt{sw/include/usb\_hid\_keyboard.h} and
+\texttt{sw/input/usb\_hid\_keyboard.c} implement device enumeration and polling
+through \texttt{libusb}. The code accepts HID boot keyboards, locates the
+interrupt IN endpoint, polls 8-byte reports, and supports up to two devices.
+
+\section{Verilog Module Interfaces}
+
+\subsection{\texttt{fighter\_vga\_renderer}}
+
+The module definition is in \texttt{hw/fighter\_vga\_renderer.sv}.
+
+Key interface properties:
+
+\begin{itemize}
+  \item clock/reset: \texttt{clk\_50}, \texttt{reset\_n}
+  \item Avalon-MM control: \texttt{avs\_chipselect}, \texttt{avs\_read},
+  \texttt{avs\_write}
+  \item Avalon-MM address/data: \texttt{avs\_address[15:0]},
+  \texttt{avs\_writedata[31:0]}, and \texttt{avs\_readdata[31:0]}
+  \item VGA conduit: \texttt{vga\_r/g/b[7:0]}, \texttt{vga\_hs},
+  \texttt{vga\_vs}, \texttt{vga\_clk}, \texttt{vga\_blank\_n},
+  \texttt{vga\_sync\_n}
+\end{itemize}
+
+\begin{longtable}{>{\raggedright\arraybackslash}p{0.22\textwidth} >{\raggedright\arraybackslash}p{0.10\textwidth} >{\raggedright\arraybackslash}p{0.12\textwidth} >{\raggedright\arraybackslash}p{0.42\textwidth}}
+\toprule
+Port & Width & Direction & Meaning \\
+\midrule
+\endhead
+\texttt{clk\_50} & 1 & input & 50 MHz FPGA clock \\
+\texttt{reset\_n} & 1 & input & Active-low reset from Platform Designer reset network \\
+\texttt{avs\_chipselect} & 1 & input & Avalon slave selected \\
+\texttt{avs\_read} & 1 & input & Avalon read strobe \\
+\texttt{avs\_write} & 1 & input & Avalon write strobe \\
+\texttt{avs\_address} & 16 & input & Word offset for control, geometry, ident, or framebuffer write \\
+\texttt{avs\_writedata} & 32 & input & Register write data or packed RGB565 pixels \\
+\texttt{avs\_readdata} & 32 & output & Register read data \\
+\texttt{vga\_r} & 8 & output & Red channel to VGA DAC \\
+\texttt{vga\_g} & 8 & output & Green channel to VGA DAC \\
+\texttt{vga\_b} & 8 & output & Blue channel to VGA DAC \\
+\texttt{vga\_hs} & 1 & output & VGA horizontal sync \\
+\texttt{vga\_vs} & 1 & output & VGA vertical sync \\
+\texttt{vga\_clk} & 1 & output & VGA pixel clock \\
+\texttt{vga\_blank\_n} & 1 & output & VGA blanking indicator \\
+\texttt{vga\_sync\_n} & 1 & output & VGA sync control, fixed low \\
+\bottomrule
+\end{longtable}
+
+\subsection{\texttt{fighter\_audio\_wm8731}}
+
+The module definition is in \texttt{hw/fighter\_audio.sv}.
+
+Key parameters:
+
+\begin{itemize}
+  \item \texttt{FIFO\_DEPTH = 128}
+  \item \texttt{CLK\_HZ = 50000000}
+  \item \texttt{I2C\_RATE\_HZ = 100000}
+  \item \texttt{XCK\_DIV = 4}
+  \item \texttt{BCLK\_DIV = 16}
+  \item \texttt{I2C\_DEVICE\_ADDR = 7'h1A}
+\end{itemize}
+
+Key ports include clock/reset, a 4-word Avalon-MM slave, WM8731 audio pins,
+WM8731 I2C pins, and codec initialization status outputs.
+
+\begin{longtable}{>{\raggedright\arraybackslash}p{0.22\textwidth} >{\raggedright\arraybackslash}p{0.10\textwidth} >{\raggedright\arraybackslash}p{0.12\textwidth} >{\raggedright\arraybackslash}p{0.42\textwidth}}
+\toprule
+Port & Width & Direction & Meaning \\
+\midrule
+\endhead
+\texttt{clk} & 1 & input & 50 MHz FPGA clock \\
+\texttt{reset\_n} & 1 & input & Active-low reset \\
+\texttt{avs\_chipselect} & 1 & input & Avalon slave selected \\
+\texttt{avs\_read} & 1 & input & Avalon read strobe \\
+\texttt{avs\_write} & 1 & input & Avalon write strobe \\
+\texttt{avs\_address} & 2 & input & Audio register word offset \texttt{0..3} \\
+\texttt{avs\_writedata} & 32 & input & Control bits or sample word \\
+\texttt{avs\_readdata} & 32 & output & Status or FIFO-space read data \\
+\texttt{aud\_xck} & 1 & output & WM8731 master clock \\
+\texttt{aud\_bclk} & 1 & output & WM8731 bit clock \\
+\texttt{aud\_daclrck} & 1 & output & DAC left/right clock \\
+\texttt{aud\_adclrck} & 1 & output & ADC left/right clock \\
+\texttt{aud\_dacdat} & 1 & output & DAC serial data \\
+\texttt{aud\_adcdat} & 1 & input & ADC serial data, currently unused \\
+\texttt{fpga\_i2c\_sclk} & 1 & bidir & Codec I2C clock, open-drain style \\
+\texttt{fpga\_i2c\_sdat} & 1 & bidir & Codec I2C data, open-drain style \\
+\texttt{codec\_init\_done} & 1 & output & Initialization complete status \\
+\texttt{codec\_init\_error} & 1 & output & Initialization failed status \\
+\bottomrule
+\end{longtable}
+
+\section{Board Resource Use}
+
+The current Quartus build report is
+\texttt{hw/output\_files/soc\_system.fit.summary}. It was generated by
+Quartus Prime Lite 21.1 for Cyclone V device \texttt{5CSEMA5F31C6}.
+
+\begin{longtable}{>{\raggedright\arraybackslash}p{0.34\textwidth} >{\raggedright\arraybackslash}p{0.20\textwidth} >{\raggedright\arraybackslash}p{0.20\textwidth} >{\raggedright\arraybackslash}p{0.14\textwidth}}
+\toprule
+Resource & Used & Available & Percent \\
+\midrule
+\endhead
+ALMs & \texttt{1,653} & \texttt{32,070} & \texttt{5\%} \\
+Registers & \texttt{1,885} & -- & -- \\
+Pins & \texttt{362} & \texttt{457} & \texttt{79\%} \\
+Block memory bits & \texttt{8,192} & \texttt{4,065,280} & \texttt{<1\%} \\
+RAM blocks / M10Ks & \texttt{2} & \texttt{397} & \texttt{<1\%} \\
+DSP blocks & \texttt{2} & \texttt{87} & \texttt{2\%} \\
+PLLs & \texttt{0} & \texttt{6} & \texttt{0\%} \\
+DLLs & \texttt{1} & \texttt{4} & \texttt{25\%} \\
+\bottomrule
+\end{longtable}
+
+The fitter hierarchy report attributes the two M10K blocks to
+\texttt{fighter\_audio\_wm8731}: one for the left FIFO and one for the right
+FIFO. Each FIFO is \texttt{4096} bits, implemented as \texttt{128 x 32}. The
+two DSP blocks are attributed to \texttt{fighter\_vga\_renderer} arithmetic
+logic. The custom \texttt{fighter\_audio\_wm8731} entity uses approximately
+\texttt{164.4} ALMs, \texttt{250} combinational ALUTs, \texttt{332} dedicated
+logic registers, \texttt{8192} block memory bits, and \texttt{2} M10Ks. The
+custom \texttt{fighter\_vga\_renderer} entity uses approximately
+\texttt{1100.3} ALMs, \texttt{1817} combinational ALUTs, \texttt{776}
+dedicated logic registers, \texttt{0} M10Ks in the reported fit, and
+\texttt{2} DSP blocks.
+
+Board-level resources used by the project include:
+
+\begin{itemize}
+  \item HPS DDR3, USB, SD, UART, Ethernet, SPI, and I2C pins through the
+  generated HPS subsystem.
+  \item VGA output pins: 8-bit red, 8-bit green, 8-bit blue, HS, VS, CLK,
+  BLANK\_N, and SYNC\_N.
+  \item Audio codec pins: \texttt{AUD\_XCK}, \texttt{AUD\_BCLK},
+  \texttt{AUD\_DACLRCK}, \texttt{AUD\_ADCLRCK}, \texttt{AUD\_DACDAT}, and
+  \texttt{AUD\_ADCDAT}.
+  \item FPGA-side codec I2C pins: \texttt{FPGA\_I2C\_SCLK} and
+  \texttt{FPGA\_I2C\_SDAT}.
+  \item LEDs: \texttt{LEDR[0]} shows codec initialization done and
+  \texttt{LEDR[1]} shows codec initialization error.
+\end{itemize}
+
+\section{Implementation Details and Testing}
+
+\subsection{Main Loop and Execution Modes}
+
+\texttt{sw/main\_phase1\_demo.c} is the main demo program. It supports:
+
+\begin{itemize}
+  \item \texttt{--script smoke|ko}
+  \item \texttt{--usb}
+  \item \texttt{--console}
+  \item \texttt{--fb PATH}
+  \item \texttt{--audio}
+  \item \texttt{--frames N}
+  \item \texttt{--realtime}
+\end{itemize}
+
+At runtime, each logic step collects or synthesizes input reports, parses them
+into \texttt{fighter\_player\_result\_t}, updates the game, updates animation
+state, and processes audio commands. A rendered frame is drawn after at least
+one logic step.
+
+\subsection{Game Rules Already Implemented}
+
+The current branch supports:
+
+\begin{itemize}
+  \item left/right movement, jumping, crouching, crouch guard, standing guard
+  \item normal attack, fireball, dragon punch, jump attacks, and sweep
+  \item fireball projectile spawning, movement, collision, mutual cancellation,
+  hit, and block handling
+  \item attack startup, active, hit-confirm, block-confirm, and recovery phases
+  \item automatic facing updates and grounded overlap resolution
+  \item hit damage, guard chip damage, hit stun, block stun, KO, double KO,
+  timeout, exit, menu, game over, and victory/KO visual states
+\end{itemize}
+
+\subsection{Automated Test Coverage}
+
+\texttt{sw/tests/test\_phase1.c} covers menu entry, match start, exiting to
+menu, KO and game-over transitions, restart after game-over gating, timeout
+draw resolution, MMIO game-state encoding, hit-confirm behavior, block stun,
+airborne cross-up facing reversal, grounded overlap resolution, projectile
+behavior, and animation-related state transitions.
+
+\subsection{Build Outputs}
+
+\texttt{sw/Makefile} currently builds:
+
+\begin{itemize}
+  \item \texttt{phase1\_demo}
+  \item \texttt{phase1\_test}
+  \item \texttt{audio\_demo}
+  \item \texttt{audio\_probe}
+  \item \texttt{vga\_probe}
+  \item \texttt{input\_demo}, only when \texttt{libusb-1.0} is installed
+\end{itemize}
+
+Recommended validation commands:
+
+\begin{lstlisting}[style=fighterstyle]
+cd sw
+make
+./phase1_test
+./vga_probe
+./audio_probe
+./phase1_demo --script smoke --console
+./phase1_demo --script ko --console
+./phase1_demo --script smoke --audio
+\end{lstlisting}
+
+\subsection{Current Risks and Limitations}
+
+\begin{itemize}
+  \item There is no Linux kernel driver yet; VGA and audio hardware are mapped
+  directly through \texttt{/dev/mem}.
+  \item The current main display path is the FPGA VGA renderer, not Linux
+  framebuffer. Its MMIO protocol accepts frame data; it does not yet consume
+  the 22-word game-state MMIO encoding directly as object/sprite commands.
+  \item Audio is disabled unless requested with \texttt{--audio}.
+  \item The code relies on asset files under \texttt{game\_assets}; deployment
+  to the board must preserve the expected asset layout or set
+  \texttt{FIGHTER\_ASSET\_ROOT}.
+  \item \texttt{input\_demo} depends on \texttt{libusb-1.0}; the Makefile only
+  builds it when pkg-config can find libusb.
+\end{itemize}
+
+\section{Conclusion and Future Work}
+
+The current repository contains a working HPS fighting-game prototype and two
+custom FPGA output peripherals: the FPGA VGA renderer and WM8731 audio output.
+The important architectural distinction is that the main display path is not
+Linux framebuffer; it is a custom FPGA VGA renderer whose current MMIO input
+format is frame data rather than object/sprite commands.
+
+The most direct future roadmap is:
+
+\begin{enumerate}
+  \item keep the current FPGA VGA renderer path as the stable display backend
+  \item add a kernel driver or UIO-style access layer to replace raw
+  \texttt{/dev/mem}
+  \item optionally add a true FPGA sprite/UI renderer that consumes the
+  existing 22-word \texttt{fighter\_mmio\_encode()} contract
+  \item expand board-level validation for USB input, VGA, audio, and asset
+  loading together
+\end{enumerate}
+
+\section{Reference Files}
+
+\begin{itemize}
+  \item \texttt{sw/main\_phase1\_demo.c}
+  \item \texttt{sw/main\_vga\_probe.c}
+  \item \texttt{sw/main\_audio\_probe.c}
+  \item \texttt{sw/game/fighter\_game.c}
+  \item \texttt{sw/fighter\_animation.c}
+  \item \texttt{sw/render\_if/fighter\_renderer.c}
+  \item \texttt{sw/render\_if/fighter\_mmio.c}
+  \item \texttt{sw/input/fighter\_input.c}
+  \item \texttt{sw/input/usb\_hid\_keyboard.c}
+  \item \texttt{sw/audio/fighter\_audio.c}
+  \item \texttt{sw/include/fighter\_game.h}
+  \item \texttt{sw/include/fighter\_renderer.h}
+  \item \texttt{sw/include/fighter\_mmio.h}
+  \item \texttt{hw/fighter\_vga\_renderer.sv}
+  \item \texttt{hw/fighter\_vga\_hw.tcl}
+  \item \texttt{hw/fighter\_audio.sv}
+  \item \texttt{hw/fighter\_audio\_hw.tcl}
+  \item \texttt{hw/soc\_system.qsys}
+  \item \texttt{hw/soc\_system\_top.sv}
+  \item \texttt{docs/registers.md}
+  \item \texttt{docs/hardware\_software\_interface.md}
+\end{itemize}
+
+\end{document}

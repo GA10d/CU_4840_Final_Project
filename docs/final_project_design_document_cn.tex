@@ -1,0 +1,610 @@
+\documentclass[12pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{CJKutf8}
+\usepackage[margin=1in]{geometry}
+\usepackage{array}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{longtable}
+\usepackage{tabularx}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{float}
+\usepackage{graphicx}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue,
+  urlcolor=blue,
+  citecolor=blue
+}
+
+\lstdefinestyle{fighterstyle}{
+  basicstyle=\ttfamily\small,
+  breaklines=true,
+  columns=fullflexible,
+  frame=single,
+  backgroundcolor=\color{gray!5}
+}
+
+\title{Final Project 设计文档}
+\author{}
+\date{2026 年 4 月 28 日}
+
+\begin{document}
+\begin{CJK*}{UTF8}{gbsn}
+
+\maketitle
+
+本文档对应当前仓库状态。项目已经不再是单纯的 HPS 软件显示原型：当前硬件工程中已经包含两个自定义 FPGA 外设，一个是 FPGA VGA renderer，另一个是 WM8731 音频输出外设。VGA 主路径不是 Linux \texttt{/dev/fb0}，而是 HPS 通过 MMIO 把待显示帧数据写入 FPGA 自定义 VGA IP，再由 FPGA 产生 VGA 时序、管理双缓冲并输出到板上 VGA DAC。
+
+\section{项目概述}
+
+\subsection{系统功能}
+
+本项目在 \texttt{DE1-SoC} 平台上实现一个双人 2D fighting game prototype。当前系统的职责划分如下：
+
+\begin{itemize}
+  \item HPS 侧 C 程序负责 USB 键盘输入、游戏状态机、碰撞检测、伤害结算、动画状态选择、图像/音频素材读取、音频命令调度，以及通过 \texttt{/dev/mem} 访问 FPGA MMIO 外设。
+  \item FPGA 侧 \path|fighter_vga_renderer| 是当前实际使用的 VGA renderer。它提供 MMIO 输入窗口，接收 HPS 写入的 \texttt{320x240} RGB565 帧数据，在 FPGA 内部管理显示 buffer，并以 \texttt{640x480} VGA 时序输出。
+  \item FPGA 侧 \path|fighter_audio_wm8731| 外设提供 WM8731 音频输出接口。HPS 写入左右声道 PCM sample，FPGA 用 FIFO 缓冲、I2C 初始化 codec，并串行输出音频数据。
+  \item 软件仍保留 \path|fighter_mmio_encode()|，可以把游戏状态编码成 22 个 32-bit word。这个接口目前主要用于测试和未来可能的 object/sprite-level VGA renderer；当前已实现 VGA IP 使用的是 MMIO frame input 协议。
+\end{itemize}
+
+\subsection{当前实现状态}
+
+\begin{longtable}{>{\raggedright\arraybackslash}p{0.28\textwidth} >{\raggedright\arraybackslash}p{0.18\textwidth} >{\raggedright\arraybackslash}p{0.42\textwidth}}
+\toprule
+模块/功能 & 状态 & 说明 \\
+\midrule
+\endhead
+双 USB 键盘输入 & 已实现 & 有 \texttt{libusb-1.0} 时支持最多两个 HID boot keyboard \\
+游戏逻辑 & 已实现 & Menu、Playing、Game Over、KO、timeout、exit、block、hit、projectile 等 \\
+图像动画系统 & 已实现 & 读取 Ryu/Ken PPM sprite、背景图、菜单图、fireball sprite \\
+FPGA VGA renderer & 已实现 & \path|fighter_vga_renderer|，默认物理地址 \texttt{0xFF240000}，这是主显示路径 \\
+Linux framebuffer/console fallback & 已实现 & 仅作为 MMIO VGA 不可用时的 fallback \\
+FPGA audio 输出 & 已实现 & \path|fighter_audio_wm8731|，默认物理地址 \texttt{0xFF200000} \\
+Linux kernel driver & 未实现 & 目前使用 user-space \texttt{/dev/mem} 直接映射物理地址 \\
+\bottomrule
+\end{longtable}
+
+\section{顶层数据路径}
+
+\begin{lstlisting}[style=fighterstyle]
+USB Keyboard 1/2
+      |
+      v
+usb_hid_keyboard.c  (libusb)
+      |
+      v
+fighter_input.c
+      |
+      v
+fighter_game.c -----> fighter_animation.c
+      |                         |
+      | game state              | current sprite
+      v                         v
+fighter_renderer.c
+      |
+      | RGB565 frame write through MMIO
+      v
+/dev/mem + lightweight HPS-to-FPGA bridge
+      |
+      v
+fighter_vga_renderer
+      |
+      | FPGA timing / buffer swap / RGB output
+      v
+VGA_R/G/B, VGA_HS, VGA_VS, VGA_CLK
+
+fighter_game.c
+      |
+      | audio commands
+      v
+fighter_audio.c
+      |
+      +--> /dev/mem --> fighter_audio_wm8731 --> WM8731
+      |
+      +--> command backend fallback
+\end{lstlisting}
+
+\section{素材文件位置与读取方式}
+
+图像和音频素材都是 HPS Linux 文件系统中的普通文件，不会被烧进 FPGA bitstream。VGA 主路径仍然是 FPGA renderer：HPS 把一帧 RGB565 数据通过 MMIO 写给 \path|fighter_vga_renderer|，FPGA 再负责 VGA timing、buffer swap 和 RGB 输出。音频路径类似，HPS 把 PCM sample 写入 audio MMIO FIFO，FPGA 再驱动 WM8731。
+
+\begin{table}[H]
+\footnotesize
+\setlength{\tabcolsep}{4pt}
+\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{0.20\textwidth} >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}p{0.22\textwidth}}
+\toprule
+素材类型 & 仓库路径 & 读取代码 \\
+\midrule
+Ryu sprites & \path|game_assets/sprites/RyuPPM/*/*.ppm| & \path|fighter_animation.c| \\
+Ken sprites & \path|game_assets/sprites/KenPPM/*/*.ppm| & \path|fighter_animation.c| \\
+Fireball sprites & \path|game_assets/sprites/*PPM/fireball/*.ppm| 或 \path|attack_fireball/*.ppm| & \path|fighter_animation.c| \\
+背景图 & \path|game_assets/background/background.ppm| & \path|fighter_renderer.c| \\
+菜单图 & \path|game_assets/ui/menu/menu_frame_0.ppm| 和 \path|menu_frame_1.ppm| & \path|fighter_renderer.c| \\
+菜单 BGM & \path|game_assets/sound effects/Title.wav| & \path|fighter_audio.c| \\
+确认音效 & \path|game_assets/sound effects/Credit.wav| & \path|fighter_audio.c| \\
+Game-over 音效 & \path|game_assets/sound effects/Game Over.wav| & \path|fighter_audio.c| \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+完整读取代码路径是 \path|sw/fighter_animation.c|、\path|sw/render_if/fighter_renderer.c| 和 \path|sw/audio/fighter_audio.c|。
+
+素材查找规则如下：
+
+\begin{itemize}
+  \item 如果设置 \texttt{FIGHTER\_ASSET\_ROOT}，动画系统从 \path|$FIGHTER_ASSET_ROOT/sprites/RyuPPM| 和 \path|$FIGHTER_ASSET_ROOT/sprites/KenPPM| 读取角色素材。
+  \item 如果没有设置该环境变量，动画系统先尝试 \path|/root/game_assets/sprites/RyuPPM| 和 \path|/root/game_assets/sprites/KenPPM|，再退回仓库相对路径 \path|../game_assets/sprites/RyuPPM| 和 \path|../game_assets/sprites/KenPPM|。
+  \item 背景和菜单图也按 \texttt{FIGHTER\_ASSET\_ROOT}、\path|/root/game_assets|、\path|../game_assets| 的顺序查找。
+  \item PPM loader 支持 \texttt{P6} binary PPM 和 \texttt{P3} ASCII PPM，读出后在 HPS heap memory 中保存为 24-bit RGB。
+  \item WAV loader 通过 \texttt{fopen()} 读取 RIFF/WAVE，接受 PCM16 mono 或 stereo，并重采样到软件目标采样率 \texttt{48000} Hz。
+\end{itemize}
+
+\section{软硬件地址映射}
+
+\path|hw/soc_system.qsys| 将两个自定义 IP 接到 HPS lightweight bridge。Linux 侧 lightweight bridge 基地址为 \texttt{0xFF200000}。
+
+\begin{longtable}{>{\raggedright\arraybackslash}p{0.24\textwidth} >{\raggedright\arraybackslash}p{0.18\textwidth} >{\raggedright\arraybackslash}p{0.24\textwidth} >{\raggedright\arraybackslash}p{0.22\textwidth}}
+\toprule
+IP instance & Qsys base & Linux 物理地址 & 覆盖变量 \\
+\midrule
+\endhead
+\path|fighter_audio_0| & \texttt{0x0000} & \texttt{0xFF200000} & \texttt{FIGHTER\_AUDIO\_MMIO\_ADDR} \\
+\path|fighter_vga_0| & \texttt{0x40000} & \texttt{0xFF240000} & \texttt{FIGHTER\_VGA\_MMIO\_ADDR} \\
+\bottomrule
+\end{longtable}
+
+软件还会映射 HPS bridge reset register \texttt{0xFFD0501C}，清除 bit \texttt{[1:0]} 来打开 HPS-FPGA bridge。VGA 和 audio 分别可以用 \texttt{FIGHTER\_VGA\_BRIDGE\_RESET\_ADDR} 和 \texttt{FIGHTER\_AUDIO\_BRIDGE\_RESET\_ADDR} 覆盖该地址。
+
+\section{软硬件接口协议}
+
+\subsection{软硬件连接总表}
+
+当前系统的核心连接可以按“输入、游戏状态、图像、音频、调试/bring-up”分成几条链路。下表总结每条链路两端是谁、接口是什么、传什么数据、位宽和带宽估算。
+
+\begin{longtable}{>{\raggedright\arraybackslash}p{0.18\textwidth} >{\raggedright\arraybackslash}p{0.18\textwidth} >{\raggedright\arraybackslash}p{0.18\textwidth} >{\raggedright\arraybackslash}p{0.15\textwidth} >{\raggedright\arraybackslash}p{0.23\textwidth}}
+\toprule
+连接 & 接口/协议 & 数据内容 & 位宽 & 带宽/速率 \\
+\midrule
+\endhead
+USB keyboard 到 HPS Linux & USB HID boot keyboard，通过 \texttt{libusb} 轮询 interrupt IN endpoint & 8-byte HID keyboard report & 每个 report 8 bytes & 取决于 USB polling；游戏逻辑按约 60 FPS 消费输入，两个键盘约 \texttt{2 * 8 * 60 = 960 B/s} 的游戏侧有效输入数据 \\
+HPS game logic 到 animation system & C 函数调用，内存结构体 & \path|fighter_game_t| 中的 player state、visual state、attack state & 软件结构体，不是硬件 bus & HPS 内存访问，不跨 FPGA 边界 \\
+HPS renderer 到 FPGA VGA renderer & Lightweight HPS-to-FPGA bridge 上的 Avalon-MM write & RGB565 frame data，两个 pixel 打包成一个 32-bit word & Avalon data \texttt{32} bits，address \texttt{16} bits & \texttt{320*240*16 = 1,228,800 bit/frame = 153,600 B/frame}；60 FPS 时约 \texttt{9.216 MB/s = 73.728 Mbit/s}，不含 bus overhead \\
+FPGA VGA renderer 到 VGA DAC & 并行 VGA signal & RGB、HS、VS、CLK、BLANK、SYNC & RGB \texttt{24} bits + control pins & Pixel clock 约 \texttt{25 MHz}；active video 约 \texttt{640*480*24*60 = 442 Mbit/s}，按 pixel clock 计算 RGB lane 约 \texttt{25M*24 = 600 Mbit/s} \\
+HPS audio backend 到 FPGA audio IP & Lightweight HPS-to-FPGA bridge 上的 Avalon-MM write & 左右声道 PCM sample word，\texttt{int16 << 16} & Avalon data \texttt{32} bits，address \texttt{2} bits & Stereo 16-bit 48 kHz payload 约 \texttt{48,000*2*16 = 1.536 Mbit/s = 192 KB/s} \\
+FPGA audio IP 到 WM8731 DAC & Left-justified serial audio & 64-bit audio frame，左右声道各 16-bit 有效 sample & \texttt{AUD\_DACDAT} 1 bit serial，\texttt{AUD\_BCLK} 1 bit clock & \texttt{AUD\_BCLK = 3.125 MHz}；\texttt{LRCK = 48.828125 kHz}；有效 PCM payload 约 \texttt{1.5625 Mbit/s} \\
+FPGA audio IP 到 WM8731 config port & I2C open-drain style & codec register initialization word & \texttt{SCLK} 1 bit，\texttt{SDAT} 1 bit bidir & \texttt{100 kHz} I2C init；只在 bring-up/config 阶段使用 \\
+HPS probe tools 到 FPGA IP & \texttt{/dev/mem} + Avalon-MM read/write & \texttt{VPGA} ident、geometry、audio status、FIFO space & 32-bit MMIO word & 低频 bring-up/debug traffic，不在 per-frame critical path 中 \\
+\bottomrule
+\end{longtable}
+
+\subsection{连接拓扑}
+
+\begin{lstlisting}[style=fighterstyle]
+USB keyboard(s)
+  -> HPS USB controller
+  -> Linux libusb
+  -> usb_hid_keyboard.c
+  -> fighter_input.c
+  -> fighter_game.c
+
+fighter_game.c + fighter_animation.c + assets in HPS filesystem
+  -> fighter_renderer.c
+  -> /dev/mem mmap
+  -> HPS lightweight AXI master
+  -> Platform Designer Avalon-MM interconnect
+  -> fighter_vga_renderer
+  -> VGA_R/G/B + VGA_HS/VS/CLK
+
+fighter_game.c audio commands + WAV files in HPS filesystem
+  -> fighter_audio.c
+  -> /dev/mem mmap
+  -> HPS lightweight AXI master
+  -> Platform Designer Avalon-MM interconnect
+  -> fighter_audio_wm8731
+  -> WM8731 serial audio + I2C config
+\end{lstlisting}
+
+\subsection{带宽计算依据}
+
+VGA MMIO 输入窗口使用 \texttt{320x240} RGB565 frame data：
+
+\begin{itemize}
+  \item 每帧 pixel 数：\texttt{320 * 240 = 76800}
+  \item 每个 pixel：\texttt{16} bits
+  \item 每帧数据量：\texttt{76800 * 16 = 1,228,800} bits，也就是 \texttt{153,600} bytes
+  \item 每个 MMIO word 包两个 pixel，所以每帧写 \texttt{38400} 个 32-bit word
+  \item 60 FPS 时理论 payload：\texttt{153,600 * 60 = 9,216,000 B/s}，约 \texttt{9.216 MB/s}
+\end{itemize}
+
+Audio MMIO 输入按照 stereo PCM16 估算：
+
+\begin{itemize}
+  \item 每个 sample frame：left \texttt{16} bits + right \texttt{16} bits = \texttt{32} bits
+  \item 目标采样率：\texttt{48000} Hz
+  \item payload：\texttt{48000 * 32 = 1,536,000 bit/s}，约 \texttt{192 KB/s}
+  \item 硬件实际 LRCK 由 \texttt{50 MHz / 1024} 得到，约 \texttt{48.828125 kHz}，对应有效 payload 约 \texttt{1.5625 Mbit/s}
+\end{itemize}
+
+Avalon-MM slave 本身是 \texttt{32-bit} data path。若只按 FPGA 侧 50 MHz、单周期 32-bit transfer 粗略估计，理论上限是 \texttt{50M * 32 = 1.6 Gbit/s = 200 MB/s}。实际 HPS user-space \texttt{/dev/mem} 写入吞吐会低于这个理论值，且受 Linux、cache/memory ordering、AXI bridge 和 interconnect 开销影响；当前代码没有记录实测吞吐，因此文档只使用上面的 payload 带宽作为设计需求。
+
+\subsection{Avalon-MM 协议}
+
+两个自定义 IP 都是 Avalon-MM slave。Platform Designer 设置 \texttt{addressUnits = WORDS}，所以 HPS 软件中的 \texttt{regs[n]} 对应 Avalon \texttt{avs\_address == n}，同时对应 byte offset \texttt{4*n}。
+
+\begin{longtable}{>{\raggedright\arraybackslash}p{0.20\textwidth} >{\raggedright\arraybackslash}p{0.12\textwidth} >{\raggedright\arraybackslash}p{0.16\textwidth} >{\raggedright\arraybackslash}p{0.40\textwidth}}
+\toprule
+信号 & VGA 位宽 & Audio 位宽 & 含义 \\
+\midrule
+\endhead
+\texttt{avs\_chipselect} & 1 & 1 & 当前 slave 被选中 \\
+\texttt{avs\_read} & 1 & 1 & HPS 发起读事务 \\
+\texttt{avs\_write} & 1 & 1 & HPS 发起写事务 \\
+\texttt{avs\_address} & 16 & 2 & 32-bit word offset，不是 byte address \\
+\texttt{avs\_writedata} & 32 & 32 & HPS 写入数据 \\
+\texttt{avs\_readdata} & 32 & 32 & FPGA 返回读数据 \\
+\bottomrule
+\end{longtable}
+
+\subsection{FPGA VGA Renderer 的 MMIO 操作流程}
+
+\begin{enumerate}
+  \item 打开 \texttt{/dev/mem}。
+  \item 映射 bridge reset register \texttt{0xFFD0501C}，清除 bit \texttt{[1:0]}。
+  \item 映射 VGA MMIO span，默认物理地址 \texttt{0xFF240000}。
+  \item 读取 \texttt{regs[31]}，必须等于 \texttt{0x56504741}，即 ASCII \texttt{"VPGA"}。
+  \item 读取 \texttt{regs[1]}、\texttt{regs[2]}、\texttt{regs[3]}，确认 framebuffer geometry 是 \texttt{320}、\texttt{240}、\texttt{640}。
+  \item 每帧写入前轮询 \texttt{regs[0] bit1}，等待 swap pending 清零。
+  \item HPS 把当前帧数据送入 FPGA：两个 RGB565 pixel 打包进一个 32-bit word，写入 \texttt{regs[1024]} 开始的 frame input window。
+  \item 写 \texttt{regs[0] = 0x00000002}。FPGA VGA renderer 在下一次 vblank 切换显示 buffer，并继续产生 VGA timing 与 RGB 输出。
+\end{enumerate}
+
+\subsection{Audio MMIO 操作流程}
+
+\begin{enumerate}
+  \item 打开 \texttt{/dev/mem}。
+  \item 映射 bridge reset register \texttt{0xFFD0501C}，清除 bit \texttt{[1:0]}。
+  \item 映射 audio MMIO 四个 32-bit word，默认物理地址 \texttt{0xFF200000}。
+  \item 写 \texttt{control bit2 | bit3}，再写 0，清空 FIFO 和 sticky status。
+  \item 读取 \texttt{fifospace}，确认左右声道 FIFO 有可写空间。
+  \item 软件线程轮询 \texttt{fifospace}。当左右声道都有空间时，写 left sample 到 \texttt{regs[2]}，写 right sample 到 \texttt{regs[3]}。
+\end{enumerate}
+
+\section{Register Map}
+
+\subsection{VGA Register Map}
+
+\begin{longtable}{>{\raggedright\arraybackslash}p{0.16\textwidth} >{\raggedright\arraybackslash}p{0.24\textwidth} >{\raggedright\arraybackslash}p{0.10\textwidth} >{\raggedright\arraybackslash}p{0.38\textwidth}}
+\toprule
+Word offset & Register & R/W & 含义 \\
+\midrule
+\endhead
+\texttt{0} & \texttt{REG\_CONTROL} & RW & 控制/状态寄存器 \\
+\texttt{1} & \texttt{REG\_WIDTH} & R & framebuffer width，固定 \texttt{320} \\
+\texttt{2} & \texttt{REG\_HEIGHT} & R & framebuffer height，固定 \texttt{240} \\
+\texttt{3} & \texttt{REG\_STRIDE} & R & 每行 byte 数，固定 \texttt{640} \\
+\texttt{31} & \texttt{REG\_IDENT} & R & \texttt{0x56504741}，ASCII \texttt{"VPGA"} \\
+\texttt{1024..39423} & frame input window & W & 写给 FPGA VGA renderer 的 RGB565 frame data，每个 word 两个 pixel \\
+\bottomrule
+\end{longtable}
+
+\texttt{REG\_CONTROL} 读出 bit：
+
+\begin{itemize}
+  \item bit0: present，固定为 1。
+  \item bit1: swap pending，表示换帧请求还没在 vblank 完成。
+  \item bit8: display buffer，当前 VGA 扫描输出的 buffer。
+  \item bit9: write buffer，当前 HPS 应写入的 back buffer。
+\end{itemize}
+
+\texttt{REG\_CONTROL} 写入 bit：
+
+\begin{itemize}
+  \item bit1: swap request。HPS 写 1 后，FPGA 等到下一次 vblank 切换双缓冲。
+\end{itemize}
+
+\subsection{VGA Framebuffer 格式}
+
+\begin{itemize}
+  \item 分辨率：\texttt{320x240}
+  \item 输出时序：\texttt{640x480}
+  \item pixel format：RGB565
+  \item 每个 32-bit word：两个 RGB565 pixel
+  \item framebuffer word 数：\texttt{38400}
+  \item framebuffer 起始 word offset：\texttt{1024}
+  \item 总映射 word 数：\texttt{39424}
+  \item 总映射 byte 数：\texttt{157696}
+\end{itemize}
+
+\begin{lstlisting}[style=fighterstyle]
+word[15:0]  = first RGB565 pixel
+word[31:16] = second RGB565 pixel
+\end{lstlisting}
+
+\subsection{Audio Register Map}
+
+\begin{longtable}{>{\raggedright\arraybackslash}p{0.16\textwidth} >{\raggedright\arraybackslash}p{0.20\textwidth} >{\raggedright\arraybackslash}p{0.10\textwidth} >{\raggedright\arraybackslash}p{0.42\textwidth}}
+\toprule
+Word offset & Register & R/W & 含义 \\
+\midrule
+\endhead
+\texttt{0} & \texttt{control} & RW & 读 FIFO/codec 状态；写 clear command \\
+\texttt{1} & \texttt{fifospace} & R & \texttt{[31:24]} left write space，\texttt{[23:16]} right write space \\
+\texttt{2} & \texttt{leftdata} & W & 左声道 sample word，格式为 \texttt{int16 << 16} \\
+\texttt{3} & \texttt{rightdata} & W & 右声道 sample word，格式为 \texttt{int16 << 16} \\
+\bottomrule
+\end{longtable}
+
+\texttt{control} 读出 bit：
+
+\begin{itemize}
+  \item bit0: \texttt{codec\_init\_done}
+  \item bit1: \texttt{codec\_init\_error}
+  \item bit2: \texttt{tx\_underflow\_seen}
+  \item bit3: \texttt{write\_overflow\_seen}
+  \item bits \texttt{[15:8]}: \texttt{right\_count}
+  \item bits \texttt{[23:16]}: \texttt{left\_count}
+\end{itemize}
+
+\texttt{control} 写入 bit：
+
+\begin{itemize}
+  \item bit2: 清除 read/playback side FIFO 状态。
+  \item bit3: 清除 write side FIFO 状态。
+\end{itemize}
+
+\subsection{软件游戏状态编码}
+
+\path|sw/render_if/fighter_mmio.c| 中的 \path|fighter_mmio_encode()| 会把 \path|fighter_game_t| 编码成 22 个 32-bit word。当前 FPGA VGA renderer 不直接使用这 22 个 word，而是通过 MMIO frame input window 接收 frame data；该 22-word 接口已经被软件测试覆盖，也可以作为未来 object/sprite-level renderer 的固定 contract。
+
+\begin{longtable}{>{\raggedright\arraybackslash}p{0.14\textwidth} >{\raggedright\arraybackslash}p{0.30\textwidth} >{\raggedright\arraybackslash}p{0.42\textwidth}}
+\toprule
+Byte offset & Register & 软件编码含义 \\
+\midrule
+\endhead
+\texttt{0x00} & \texttt{GAME\_STATE} & game state、menu frame、game-over ready \\
+\texttt{0x04} & \texttt{PLAYER1\_X} & P1 x 坐标 \\
+\texttt{0x08} & \texttt{PLAYER1\_Y} & P1 y 坐标 \\
+\texttt{0x0C} & \texttt{PLAYER1\_STATE} & P1 visual state \\
+\texttt{0x10} & \texttt{PLAYER2\_X} & P2 x 坐标 \\
+\texttt{0x14} & \texttt{PLAYER2\_Y} & P2 y 坐标 \\
+\texttt{0x18} & \texttt{PLAYER2\_STATE} & P2 visual state \\
+\texttt{0x1C} & \texttt{PLAYER1\_HP} & P1 HP \\
+\texttt{0x20} & \texttt{PLAYER2\_HP} & P2 HP \\
+\texttt{0x24} & \texttt{ROUND\_TIMER} & 剩余秒数 \\
+\texttt{0x28} & \texttt{WINNER} & 胜者 enum \\
+\texttt{0x2C} & \texttt{PLAYER1\_FACING} & P1 朝向 \\
+\texttt{0x30} & \texttt{PLAYER2\_FACING} & P2 朝向 \\
+\texttt{0x34} & \texttt{DEBUG\_FLAGS} & last attack 和 attack phase \\
+\texttt{0x38} & \texttt{PLAYER1\_ATTACK\_CMD} & P1 attack command \\
+\texttt{0x3C} & \texttt{PLAYER2\_ATTACK\_CMD} & P2 attack command \\
+\texttt{0x40} & \texttt{PLAYER1\_STATE\_FRAME} & P1 当前状态持续帧数 \\
+\texttt{0x44} & \texttt{PLAYER2\_STATE\_FRAME} & P2 当前状态持续帧数 \\
+\texttt{0x48} & \texttt{PLAYER1\_EVENT\_FLAGS} & P1 event flags \\
+\texttt{0x4C} & \texttt{PLAYER2\_EVENT\_FLAGS} & P2 event flags \\
+\texttt{0x50} & \texttt{PLAYER1\_COMBAT\_RESULT} & P1 combat result \\
+\texttt{0x54} & \texttt{PLAYER2\_COMBAT\_RESULT} & P2 combat result \\
+\bottomrule
+\end{longtable}
+
+\section{硬件模块与端口}
+
+\subsection{模块职责}
+
+\begin{table}[H]
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{0.31\textwidth} >{\raggedright\arraybackslash}X}
+\toprule
+模块 & 职责 \\
+\midrule
+\path|soc_system_top| & 板级 wrapper。连接 DE1-SoC 顶层 pin、Platform Designer system、VGA/audio conduit，并把 codec status 映射到 LED。 \\
+\path|soc_system| & Platform Designer 生成系统。包含 HPS、lightweight HPS-to-FPGA AXI master、interconnect、reset controller、VGA IP 和 audio IP。 \\
+\path|soc_system_mm_interconnect_0| & Platform Designer 生成的 Avalon-MM interconnect。负责地址 decode，并把 HPS 读写转发到对应 custom IP。 \\
+\path|fighter_vga_renderer| & 自定义 FPGA VGA renderer。实现 control/geometry/ident register、MMIO frame input window、VGA timing、双缓冲切换、RGB565 到 8-bit RGB 输出。 \\
+\path|fighter_audio_wm8731| & 自定义 audio IP。实现 4-word register map、左右声道 FIFO、WM8731 I2C 初始化、音频时钟分频和 DAC 串行输出。 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{\texttt{fighter\_vga\_renderer} 端口}
+
+\begin{longtable}{>{\raggedright\arraybackslash}p{0.22\textwidth} >{\raggedright\arraybackslash}p{0.10\textwidth} >{\raggedright\arraybackslash}p{0.12\textwidth} >{\raggedright\arraybackslash}p{0.42\textwidth}}
+\toprule
+端口 & 位宽 & 方向 & 数据/含义 \\
+\midrule
+\endhead
+\texttt{clk\_50} & 1 & input & 50 MHz FPGA clock \\
+\texttt{reset\_n} & 1 & input & active-low reset \\
+\texttt{avs\_chipselect} & 1 & input & Avalon slave selected \\
+\texttt{avs\_read} & 1 & input & Avalon read strobe \\
+\texttt{avs\_write} & 1 & input & Avalon write strobe \\
+\texttt{avs\_address} & 16 & input & word offset \\
+\texttt{avs\_writedata} & 32 & input & control word 或 packed RGB565 pixels \\
+\texttt{avs\_readdata} & 32 & output & register read data \\
+\texttt{vga\_r/g/b} & 8 each & output & VGA DAC RGB channel \\
+\texttt{vga\_hs} & 1 & output & horizontal sync \\
+\texttt{vga\_vs} & 1 & output & vertical sync \\
+\texttt{vga\_clk} & 1 & output & pixel clock \\
+\texttt{vga\_blank\_n} & 1 & output & visible region indicator \\
+\texttt{vga\_sync\_n} & 1 & output & fixed low sync control \\
+\bottomrule
+\end{longtable}
+
+\subsection{\texttt{fighter\_audio\_wm8731} 端口}
+
+\begin{longtable}{>{\raggedright\arraybackslash}p{0.22\textwidth} >{\raggedright\arraybackslash}p{0.10\textwidth} >{\raggedright\arraybackslash}p{0.12\textwidth} >{\raggedright\arraybackslash}p{0.42\textwidth}}
+\toprule
+端口 & 位宽 & 方向 & 数据/含义 \\
+\midrule
+\endhead
+\texttt{clk} & 1 & input & 50 MHz FPGA clock \\
+\texttt{reset\_n} & 1 & input & active-low reset \\
+\texttt{avs\_chipselect} & 1 & input & Avalon slave selected \\
+\texttt{avs\_read} & 1 & input & Avalon read strobe \\
+\texttt{avs\_write} & 1 & input & Avalon write strobe \\
+\texttt{avs\_address} & 2 & input & word offset \texttt{0..3} \\
+\texttt{avs\_writedata} & 32 & input & clear bits 或 sample word \\
+\texttt{avs\_readdata} & 32 & output & status/FIFO-space read data \\
+\texttt{aud\_xck} & 1 & output & codec master clock \\
+\texttt{aud\_bclk} & 1 & output & audio bit clock \\
+\texttt{aud\_daclrck} & 1 & output & DAC left/right clock \\
+\texttt{aud\_adclrck} & 1 & output & ADC left/right clock \\
+\texttt{aud\_dacdat} & 1 & output & DAC serial sample data \\
+\texttt{aud\_adcdat} & 1 & input & ADC serial input，当前未使用 \\
+\texttt{fpga\_i2c\_sclk} & 1 & bidir & WM8731 I2C SCL，open-drain style \\
+\texttt{fpga\_i2c\_sdat} & 1 & bidir & WM8731 I2C SDA，open-drain style \\
+\texttt{codec\_init\_done} & 1 & output & codec 初始化完成，接到 \texttt{LEDR[0]} \\
+\texttt{codec\_init\_error} & 1 & output & codec 初始化错误，接到 \texttt{LEDR[1]} \\
+\bottomrule
+\end{longtable}
+
+\section{寄存器、BRAM 与综合结果}
+
+当前设计中有三类状态：
+
+\begin{itemize}
+  \item 小型 control/status 状态，例如 \texttt{swap\_pending}、\texttt{display\_buffer}、VGA scan counter、FIFO pointer、FIFO count、I2C state，综合为普通 flip-flop register。
+  \item Audio sample FIFO 综合为 BRAM。Quartus report 显示 \path|left_fifo_rtl_0| 和 \path|right_fifo_rtl_0| 是 \texttt{altsyncram} simple dual-port RAM，每个 \texttt{128 x 32} bits，各占一个 M10K。
+  \item 源码中的 \path|fighter_vga_renderer.sv| 是 FPGA VGA renderer，实现 frame input window、显示 buffer 选择、VGA timing 与 RGB 输出。该源码描述了两个 framebuffer RAM bank。当前仓库里的 \path|hw/output_files/soc_system.fit.rpt| 显示 \path|fighter_vga_renderer| 下 M10K 数为 0，可能不是最终同步后的资源报告；若要在文档中给出最终 BRAM 数，应以重新综合后的 Quartus fit report 为准。
+\end{itemize}
+
+\section{板上资源占用}
+
+当前 Quartus build report 为 \path|hw/output_files/soc_system.fit.summary|。目标器件是 Cyclone V \texttt{5CSEMA5F31C6}。
+
+\begin{longtable}{>{\raggedright\arraybackslash}p{0.34\textwidth} >{\raggedright\arraybackslash}p{0.20\textwidth} >{\raggedright\arraybackslash}p{0.20\textwidth} >{\raggedright\arraybackslash}p{0.14\textwidth}}
+\toprule
+资源 & 已用 & 总量 & 比例 \\
+\midrule
+\endhead
+ALMs & \texttt{1,653} & \texttt{32,070} & \texttt{5\%} \\
+Registers & \texttt{1,885} & -- & -- \\
+Pins & \texttt{362} & \texttt{457} & \texttt{79\%} \\
+Block memory bits & \texttt{8,192} & \texttt{4,065,280} & \texttt{<1\%} \\
+RAM blocks / M10Ks & \texttt{2} & \texttt{397} & \texttt{<1\%} \\
+DSP blocks & \texttt{2} & \texttt{87} & \texttt{2\%} \\
+PLLs & \texttt{0} & \texttt{6} & \texttt{0\%} \\
+DLLs & \texttt{1} & \texttt{4} & \texttt{25\%} \\
+\bottomrule
+\end{longtable}
+
+entity 级资源归属：
+
+\begin{itemize}
+  \item \path|fighter_audio_wm8731| 使用约 \texttt{164.4} ALMs、\texttt{250} combinational ALUTs、\texttt{332} dedicated logic registers、\texttt{8192} block memory bits、\texttt{2} M10Ks。
+  \item \path|fighter_vga_renderer| 使用约 \texttt{1100.3} ALMs、\texttt{1817} combinational ALUTs、\texttt{776} dedicated logic registers、\texttt{0} M10Ks、\texttt{2} DSP blocks。
+\end{itemize}
+
+板上资源使用包括：
+
+\begin{itemize}
+  \item HPS DDR3、USB、SD、UART、Ethernet、SPI、I2C。
+  \item VGA: \texttt{VGA\_R[7:0]}、\texttt{VGA\_G[7:0]}、\texttt{VGA\_B[7:0]}、\texttt{VGA\_HS}、\texttt{VGA\_VS}、\texttt{VGA\_CLK}、\texttt{VGA\_BLANK\_N}、\texttt{VGA\_SYNC\_N}。
+  \item Audio: \texttt{AUD\_XCK}、\texttt{AUD\_BCLK}、\texttt{AUD\_DACLRCK}、\texttt{AUD\_ADCLRCK}、\texttt{AUD\_DACDAT}、\texttt{AUD\_ADCDAT}。
+  \item Codec I2C: \texttt{FPGA\_I2C\_SCLK}、\texttt{FPGA\_I2C\_SDAT}。
+  \item LEDs: \texttt{LEDR[0]} 显示 codec init done，\texttt{LEDR[1]} 显示 codec init error。
+\end{itemize}
+
+\section{软件接口}
+
+\subsection{游戏逻辑}
+
+\path|sw/include/fighter_game.h| 定义游戏状态。默认配置为 \texttt{640x480}，地面 \texttt{y=400}，角色大小 \texttt{48x96}，projectile 大小 \texttt{28x20}，projectile speed \texttt{6}，walk speed \texttt{3}，jump velocity \texttt{-14}，gravity \texttt{1}，最大 HP \texttt{100}，回合时间 \texttt{99*60} frames。
+
+\subsection{输入}
+
+默认键位：
+
+\begin{itemize}
+  \item \texttt{W}: jump
+  \item \texttt{A}: move left
+  \item \texttt{D}: move right
+  \item \texttt{S}: crouch
+  \item \texttt{J}: attack
+  \item \texttt{K}: guard
+  \item \texttt{L}: exit current match
+\end{itemize}
+
+攻击组合包括 normal、fireball、dragon punch、jump attack、forward/back jump attack 和 sweep。
+
+\subsection{渲染}
+
+\path|sw/include/fighter_renderer.h| 定义三种 backend：
+
+\begin{itemize}
+  \item \texttt{FIGHTER\_RENDERER\_BACKEND\_MMIO}: FPGA VGA renderer 主路径。
+  \item \texttt{FIGHTER\_RENDERER\_BACKEND\_FRAMEBUFFER}: Linux framebuffer fallback。
+  \item \texttt{FIGHTER\_RENDERER\_BACKEND\_CONSOLE}: console debug fallback。
+\end{itemize}
+
+\subsection{音频}
+
+\path|sw/include/fighter_audio.h| 定义 command-based audio。当前 track 包括 \texttt{MENU\_BGM}、\texttt{MENU\_CONFIRM}、\texttt{GAME\_OVER}。command 包括 \texttt{PLAY\_ONCE}、\texttt{START\_LOOP}、\texttt{STOP\_LOOP}。音频默认关闭，运行 \texttt{--audio} 时才初始化。
+
+\section{构建与测试}
+
+\path|sw/Makefile| 当前构建：
+
+\begin{itemize}
+  \item \texttt{phase1\_demo}
+  \item \texttt{phase1\_test}
+  \item \texttt{audio\_demo}
+  \item \texttt{audio\_probe}
+  \item \texttt{vga\_probe}
+  \item \texttt{input\_demo}，仅在 \texttt{libusb-1.0} 可用时构建
+\end{itemize}
+
+推荐验证命令：
+
+\begin{lstlisting}[style=fighterstyle]
+cd sw
+make
+./phase1_test
+./vga_probe
+./audio_probe
+./phase1_demo --script smoke --console
+./phase1_demo --script ko --console
+./phase1_demo --script smoke --audio
+\end{lstlisting}
+
+\section{限制与后续工作}
+
+\begin{itemize}
+  \item 当前没有 Linux kernel driver，VGA/audio 通过 \texttt{/dev/mem} 访问。
+  \item 当前主显示路径是 FPGA VGA renderer，不是 Linux framebuffer。当前 MMIO 协议传输的是 frame data；如果未来要让 FPGA 直接根据 game object 绘制 sprite，可以复用 22-word \path|fighter_mmio_encode()| 接口。
+  \item 音频只有加 \texttt{--audio} 才启用。
+  \item 部署到板上时必须保证 \path|game_assets| 目录存在，或设置 \texttt{FIGHTER\_ASSET\_ROOT}。
+  \item 若未来要实现真正的硬件 sprite engine，可以复用当前 22-word \path|fighter_mmio_encode()| 软件接口。
+\end{itemize}
+
+\section{参考文件}
+
+\begin{itemize}
+  \item \path|sw/main_phase1_demo.c|
+  \item \path|sw/main_vga_probe.c|
+  \item \path|sw/main_audio_probe.c|
+  \item \path|sw/game/fighter_game.c|
+  \item \path|sw/fighter_animation.c|
+  \item \path|sw/render_if/fighter_renderer.c|
+  \item \path|sw/render_if/fighter_mmio.c|
+  \item \path|sw/input/fighter_input.c|
+  \item \path|sw/input/usb_hid_keyboard.c|
+  \item \path|sw/audio/fighter_audio.c|
+  \item \path|hw/fighter_vga_renderer.sv|
+  \item \path|hw/fighter_vga_hw.tcl|
+  \item \path|hw/fighter_audio.sv|
+  \item \path|hw/fighter_audio_hw.tcl|
+  \item \path|hw/soc_system.qsys|
+  \item \path|hw/soc_system_top.sv|
+  \item \path|docs/registers.md|
+  \item \path|docs/hardware_software_interface.md|
+\end{itemize}
+
+\end{CJK*}
+\end{document}
