@@ -43,8 +43,6 @@ TARFILES = Makefile \
 	$(SYSTEM)_top.sv \
 	$(BOARD_INFO) \
 	$(SRF) \
-	ip/intr_capturer/intr_capturer.v \
-	ip/intr_capturer/intr_capturer_hw.tcl \
 	fighter_audio.sv \
 	fighter_audio_hw.tcl \
 	fighter_vga_renderer.sv \

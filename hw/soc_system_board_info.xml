@@ -16,7 +16,6 @@ of the Linux kernel.  One typically executes sopc2dts as follows:
 	<val type="string">altr,socfpga-cyclone5</val>
 	<val type="string">altr,socfpga</val>
 </DTAppend>
-<IRQMasterIgnore className="intr_capturer"/>
 <IRQMasterIgnore className="d_irq"/>
 
 <DTAppend name="next-level-cache" type="phandle" parentlabel="hps_0_arm_a9_0" val="hps_0_L2"/>

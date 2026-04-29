@@ -10,3 +10,12 @@ sw/input_demo
 sw/phase1_demo
 sw/phase1_test
 sw/vga_probe
+hw/*~
+hw/db/
+hw/incremental_db/
+hw/output_files/
+hw/*.sopcinfo
+hw/*.sopcinfo.xml
+hw/c5_pin_model_dump.txt
+hw/hps_sdram_p0_all_pins.txt
+hw/hps_sdram_p0_summary.csv
