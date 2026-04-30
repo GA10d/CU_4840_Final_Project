@@ -1,6 +1,5 @@
 #include "fighter_game.h"
 #include "fighter_animation.h"
-#include "fighter_mmio.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -154,12 +153,11 @@ static void test_game_over_restart_gate(void) {
   EXPECT_EQ_INT(commands.commands[0].type, FIGHTER_AUDIO_COMMAND_PLAY_ONCE);
 }
 
-static void test_timeout_and_mmio(void) {
+static void test_timeout_transition(void) {
   fighter_game_t game;
   fighter_audio_command_list_t commands;
   fighter_player_result_t inputs[2];
   fighter_game_config_t config;
-  unsigned int regs[FIGHTER_MMIO_REG_COUNT];
 
   fighter_game_config_default(&config);
   config.round_duration_frames = 1;
@@ -176,13 +174,6 @@ static void test_timeout_and_mmio(void) {
   EXPECT_EQ_INT(game.state, FIGHTER_GAME_STATE_GAME_OVER);
   EXPECT_EQ_INT(game.winner, FIGHTER_WINNER_DRAW);
   EXPECT_EQ_INT(game.finish_reason, FIGHTER_FINISH_REASON_TIME_OUT);
-
-  fighter_mmio_encode(&game, regs);
-  EXPECT_EQ_INT((int)regs[FIGHTER_MMIO_REG_GAME_STATE] & 0x3,
-                FIGHTER_GAME_STATE_GAME_OVER);
-  EXPECT_EQ_INT((int)regs[FIGHTER_MMIO_REG_WINNER], FIGHTER_WINNER_DRAW);
-  EXPECT_EQ_INT((int)regs[FIGHTER_MMIO_REG_PLAYER1_HP], 40);
-  EXPECT_EQ_INT((int)regs[FIGHTER_MMIO_REG_PLAYER2_HP], 40);
 }
 
 static void test_hit_confirm_state_machine(void) {
@@ -219,11 +210,10 @@ static void test_hit_confirm_state_machine(void) {
   EXPECT_TRUE(game.players[1].hurt_visual_frames > 0);
 }
 
-static void test_block_stun_and_mmio_fields(void) {
+static void test_block_stun_fields(void) {
   fighter_game_t game;
   fighter_audio_command_list_t commands;
   fighter_player_result_t inputs[2];
-  unsigned int regs[FIGHTER_MMIO_REG_COUNT];
   int i;
 
   fighter_game_init(&game, NULL);
@@ -257,19 +247,6 @@ static void test_block_stun_and_mmio_fields(void) {
   EXPECT_EQ_INT(game.players[1].combat_result,
                 FIGHTER_COMBAT_RESULT_BLOCKED);
   EXPECT_TRUE((game.players[1].event_flags & FIGHTER_PLAYER_EVENT_BLOCK) != 0);
-
-  fighter_mmio_encode(&game, regs);
-  EXPECT_EQ_INT((int)regs[FIGHTER_MMIO_REG_PLAYER1_ATTACK_CMD],
-                FIGHTER_ATTACK_NORMAL);
-  EXPECT_EQ_INT((int)regs[FIGHTER_MMIO_REG_PLAYER2_STATE],
-                FIGHTER_VISUAL_STATE_BLOCK_STUN);
-  EXPECT_TRUE(regs[FIGHTER_MMIO_REG_PLAYER2_STATE_FRAME] == 0U);
-  EXPECT_TRUE((regs[FIGHTER_MMIO_REG_PLAYER2_EVENT_FLAGS] &
-               FIGHTER_PLAYER_EVENT_BLOCK) != 0U);
-  EXPECT_EQ_INT((int)regs[FIGHTER_MMIO_REG_PLAYER1_COMBAT_RESULT],
-                FIGHTER_COMBAT_RESULT_BLOCKED);
-  EXPECT_EQ_INT((int)regs[FIGHTER_MMIO_REG_PLAYER2_COMBAT_RESULT],
-                FIGHTER_COMBAT_RESULT_BLOCKED);
 }
 
 static void test_crouch_guard_state(void) {
@@ -668,9 +645,9 @@ int main(void) {
   test_exit_back_to_menu();
   test_knockout_transition();
   test_game_over_restart_gate();
-  test_timeout_and_mmio();
+  test_timeout_transition();
   test_hit_confirm_state_machine();
-  test_block_stun_and_mmio_fields();
+  test_block_stun_fields();
   test_crouch_guard_state();
   test_grounded_jump_attack_requires_airborne();
   test_directional_jump_moves_horizontally();

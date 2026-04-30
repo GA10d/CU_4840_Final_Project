@@ -1,7 +1,7 @@
 #include "fighter_renderer.h"
 
 #include "fighter_animation.h"
-#include "fighter_mmio.h"
+#include "fighter_vga_mmio.h"
 
 #include <ctype.h>
 #include <errno.h>
@@ -313,9 +313,9 @@ static int fighter_renderer_prepare_mmio_framebuffer(
     return -1;
   }
 
-  renderer->fb_width = FIGHTER_MMIO_FRAME_WIDTH;
-  renderer->fb_height = FIGHTER_MMIO_FRAME_HEIGHT;
-  renderer->fb_stride = FIGHTER_MMIO_FRAME_WIDTH * 2;
+  renderer->fb_width = FIGHTER_VGA_MMIO_FRAME_WIDTH;
+  renderer->fb_height = FIGHTER_VGA_MMIO_FRAME_HEIGHT;
+  renderer->fb_stride = FIGHTER_VGA_MMIO_FRAME_WIDTH * 2;
   renderer->fb_bpp = 16;
   renderer->fb_data_length =
       (unsigned long)(renderer->fb_stride * renderer->fb_height);
@@ -384,7 +384,7 @@ static int fighter_renderer_init_mmio(fighter_renderer_t *renderer) {
   }
 
   if (fighter_renderer_map_physical(renderer->vga_mem_fd, mmio_addr,
-                                    FIGHTER_MMIO_REG_SPAN_COUNT *
+                                    FIGHTER_VGA_MMIO_REG_SPAN_COUNT *
                                         sizeof(uint32_t),
                                     &renderer->vga_regs_map,
                                     &renderer->vga_regs_map_length,
@@ -396,7 +396,7 @@ static int fighter_renderer_init_mmio(fighter_renderer_t *renderer) {
     return -1;
   }
 
-  ident = renderer->vga_regs[FIGHTER_MMIO_REG_IDENT];
+  ident = renderer->vga_regs[FIGHTER_VGA_MMIO_REG_IDENT];
   if (ident != k_fighter_vga_ident) {
     snprintf(renderer->init_status, sizeof(renderer->init_status),
              "VGA MMIO: probe failed at 0x%08lX (ident=0x%08X)",
@@ -405,9 +405,12 @@ static int fighter_renderer_init_mmio(fighter_renderer_t *renderer) {
     return -1;
   }
 
-  if (renderer->vga_regs[1] != FIGHTER_MMIO_FRAME_WIDTH ||
-      renderer->vga_regs[2] != FIGHTER_MMIO_FRAME_HEIGHT ||
-      renderer->vga_regs[3] != FIGHTER_MMIO_FRAME_WIDTH * 2) {
+  if (renderer->vga_regs[FIGHTER_VGA_MMIO_REG_WIDTH] !=
+          FIGHTER_VGA_MMIO_FRAME_WIDTH ||
+      renderer->vga_regs[FIGHTER_VGA_MMIO_REG_HEIGHT] !=
+          FIGHTER_VGA_MMIO_FRAME_HEIGHT ||
+      renderer->vga_regs[FIGHTER_VGA_MMIO_REG_STRIDE] !=
+          FIGHTER_VGA_MMIO_FRAME_WIDTH * 2) {
     snprintf(renderer->init_status, sizeof(renderer->init_status),
              "VGA MMIO: framebuffer geometry mismatch (%ux%u stride=%u)",
              renderer->vga_regs[1], renderer->vga_regs[2], renderer->vga_regs[3]);
@@ -418,7 +421,7 @@ static int fighter_renderer_init_mmio(fighter_renderer_t *renderer) {
   if (fighter_renderer_prepare_mmio_framebuffer(renderer) != 0) {
     snprintf(renderer->init_status, sizeof(renderer->init_status),
              "VGA MMIO: failed to allocate %dx%d backbuffer",
-             FIGHTER_MMIO_FRAME_WIDTH, FIGHTER_MMIO_FRAME_HEIGHT);
+             FIGHTER_VGA_MMIO_FRAME_WIDTH, FIGHTER_VGA_MMIO_FRAME_HEIGHT);
     fighter_renderer_close_mmio(renderer);
     return -1;
   }
@@ -443,15 +446,15 @@ static void fighter_renderer_flush_mmio_frame(fighter_renderer_t *renderer) {
   }
 
   for (wait_count = 0; wait_count < 10000000; ++wait_count) {
-    if ((renderer->vga_regs[FIGHTER_MMIO_REG_GAME_STATE] &
-         FIGHTER_MMIO_CONTROL_SWAP_PENDING) == 0U) {
+    if ((renderer->vga_regs[FIGHTER_VGA_MMIO_REG_CONTROL] &
+         FIGHTER_VGA_MMIO_CONTROL_SWAP_PENDING) == 0U) {
       break;
     }
   }
 
   src = renderer->fb_backbuffer;
-  dst = renderer->vga_regs + FIGHTER_MMIO_REG_FRAME_WORD_OFFSET;
-  word_count = FIGHTER_MMIO_FRAME_WORD_COUNT;
+  dst = renderer->vga_regs + FIGHTER_VGA_MMIO_REG_FRAME_WORD_OFFSET;
+  word_count = FIGHTER_VGA_MMIO_FRAME_WORD_COUNT;
   for (i = 0; i < word_count; ++i) {
     uint32_t lo =
         (uint32_t)src[(size_t)i * 4U] |
@@ -462,8 +465,8 @@ static void fighter_renderer_flush_mmio_frame(fighter_renderer_t *renderer) {
     dst[i] = lo | (hi << 16);
   }
 
-  renderer->vga_regs[FIGHTER_MMIO_REG_GAME_STATE] =
-      FIGHTER_MMIO_CONTROL_SWAP_REQUEST;
+  renderer->vga_regs[FIGHTER_VGA_MMIO_REG_CONTROL] =
+      FIGHTER_VGA_MMIO_CONTROL_SWAP_REQUEST;
 }
 
 static void fighter_renderer_draw_mmio(

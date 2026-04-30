@@ -8,34 +8,7 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
-enum {
-  FIGHTER_VGA_REG_GAME_STATE = 0,
-  FIGHTER_VGA_REG_PLAYER1_X = 1,
-  FIGHTER_VGA_REG_PLAYER1_Y = 2,
-  FIGHTER_VGA_REG_PLAYER1_STATE = 3,
-  FIGHTER_VGA_REG_PLAYER2_X = 4,
-  FIGHTER_VGA_REG_PLAYER2_Y = 5,
-  FIGHTER_VGA_REG_PLAYER2_STATE = 6,
-  FIGHTER_VGA_REG_PLAYER1_HP = 7,
-  FIGHTER_VGA_REG_PLAYER2_HP = 8,
-  FIGHTER_VGA_REG_ROUND_TIMER = 9,
-  FIGHTER_VGA_REG_WINNER = 10,
-  FIGHTER_VGA_REG_PLAYER1_FACING = 11,
-  FIGHTER_VGA_REG_PLAYER2_FACING = 12,
-  FIGHTER_VGA_REG_IDENT = 31,
-  FIGHTER_VGA_REG_FRAME_WORD_OFFSET = 1024,
-  FIGHTER_VGA_FRAME_WIDTH = 320,
-  FIGHTER_VGA_FRAME_HEIGHT = 240,
-  FIGHTER_VGA_FRAME_WORD_COUNT =
-      (FIGHTER_VGA_FRAME_WIDTH * FIGHTER_VGA_FRAME_HEIGHT) / 2,
-  FIGHTER_VGA_REG_SPAN_COUNT =
-      FIGHTER_VGA_REG_FRAME_WORD_OFFSET + FIGHTER_VGA_FRAME_WORD_COUNT
-};
-
-enum {
-  FIGHTER_VGA_CONTROL_SWAP_REQUEST = 1U << 1,
-  FIGHTER_VGA_CONTROL_SWAP_PENDING = 1U << 1
-};
+#include "fighter_vga_mmio.h"
 
 static const off_t k_default_bridge_reset_addr = (off_t)0xFFD0501C;
 static const off_t k_default_vga_mmio_addr = (off_t)0xFF240000;
@@ -177,8 +150,8 @@ int main(int argc, char **argv) {
   }
 
   if (map_physical(mem_fd, mmio_addr,
-                   FIGHTER_VGA_REG_SPAN_COUNT * sizeof(uint32_t), &vga_map,
-                   &vga_map_length, &vga_regs) != 0) {
+                   FIGHTER_VGA_MMIO_REG_SPAN_COUNT * sizeof(uint32_t),
+                   &vga_map, &vga_map_length, &vga_regs) != 0) {
     fprintf(stderr, "map VGA MMIO 0x%08lX failed: %s\n",
             (unsigned long)mmio_addr, strerror(errno));
     unmap_region(&bridge_map, &bridge_map_length);
@@ -189,7 +162,7 @@ int main(int argc, char **argv) {
   bridge_before = *bridge_reg;
   *bridge_reg = bridge_before & ~0x3U;
   bridge_after = *bridge_reg;
-  ident = vga_regs[FIGHTER_VGA_REG_IDENT];
+  ident = vga_regs[FIGHTER_VGA_MMIO_REG_IDENT];
 
   printf("bridge_reset_addr : 0x%08lX\n", (unsigned long)bridge_addr);
   printf("vga_mmio_addr     : 0x%08lX\n", (unsigned long)mmio_addr);
@@ -217,30 +190,35 @@ int main(int argc, char **argv) {
 
   if (write_test) {
     volatile uint32_t *frame =
-        vga_regs + FIGHTER_VGA_REG_FRAME_WORD_OFFSET;
+        vga_regs + FIGHTER_VGA_MMIO_REG_FRAME_WORD_OFFSET;
     int x;
     int y;
 
-    for (y = 0; y < FIGHTER_VGA_FRAME_HEIGHT; ++y) {
-      for (x = 0; x < FIGHTER_VGA_FRAME_WIDTH; x += 2) {
+    for (y = 0; y < FIGHTER_VGA_MMIO_FRAME_HEIGHT; ++y) {
+      for (x = 0; x < FIGHTER_VGA_MMIO_FRAME_WIDTH; x += 2) {
         uint16_t p0 =
-            (uint16_t)((((unsigned int)x * 31U) / FIGHTER_VGA_FRAME_WIDTH)
+            (uint16_t)((((unsigned int)x * 31U) /
+                        FIGHTER_VGA_MMIO_FRAME_WIDTH)
                        << 11) |
-            (uint16_t)((((unsigned int)y * 63U) / FIGHTER_VGA_FRAME_HEIGHT)
+            (uint16_t)((((unsigned int)y * 63U) /
+                        FIGHTER_VGA_MMIO_FRAME_HEIGHT)
                        << 5) |
             0x000fU;
         uint16_t p1 =
             0xf800U |
-            (uint16_t)((((unsigned int)y * 63U) / FIGHTER_VGA_FRAME_HEIGHT)
+            (uint16_t)((((unsigned int)y * 63U) /
+                        FIGHTER_VGA_MMIO_FRAME_HEIGHT)
                        << 5) |
-            (uint16_t)(((unsigned int)x * 31U) / FIGHTER_VGA_FRAME_WIDTH);
-        frame[(y * FIGHTER_VGA_FRAME_WIDTH + x) / 2] =
+            (uint16_t)(((unsigned int)x * 31U) /
+                       FIGHTER_VGA_MMIO_FRAME_WIDTH);
+        frame[(y * FIGHTER_VGA_MMIO_FRAME_WIDTH + x) / 2] =
             (uint32_t)p0 | ((uint32_t)p1 << 16);
       }
     }
-    vga_regs[FIGHTER_VGA_REG_GAME_STATE] = FIGHTER_VGA_CONTROL_SWAP_REQUEST;
+    vga_regs[FIGHTER_VGA_MMIO_REG_CONTROL] =
+        FIGHTER_VGA_MMIO_CONTROL_SWAP_REQUEST;
     printf("write_test        : wrote RGB565 gradient frame (%dx%d)\n",
-           FIGHTER_VGA_FRAME_WIDTH, FIGHTER_VGA_FRAME_HEIGHT);
+           FIGHTER_VGA_MMIO_FRAME_WIDTH, FIGHTER_VGA_MMIO_FRAME_HEIGHT);
   }
 
   unmap_region(&vga_map, &vga_map_length);

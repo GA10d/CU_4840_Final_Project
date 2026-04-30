@@ -246,15 +246,15 @@ Q58. What renderer backends do you have
 A
 There are three backends. First, MMIO VGA, which uses our FPGA VGA IP. Second, Linux framebuffer, such as /dev/fb0 or /dev/fb1, as a fallback. Third, console renderer, which prints game state and player state changes for debugging when graphical output is not available.
 
-Section 8 SoftwareHardware Register Mismatch, About 4 Minutes
+Section 8 Current Display MMIO Interface, About 4 Minutes
 
-Q59. I see fighter_mmio_encode() has game-state registers. Does the hardware consume those
+Q59. Does the FPGA consume game-state registers for rendering
 A
-Not in the current display design. That function encodes an earlier or auxiliary game-state register interface into 22 words, such as player positions, HP, attack command, event flags, and winner. The current VGA hardware instead consumes a full framebuffer. So the function is still useful for tests and possible future hardware rendering, but the current VGA IP only implements control, geometry, ident, and framebuffer registers.
+No. The old game-state register encoder path has been removed. In the current design, the HPS renders complete RGB565 pixels in software and writes them into the VGA framebuffer window. The FPGA display IP only consumes control, geometry, ident, and framebuffer registers.
 
-Q60. Is that a problem
+Q60. What is at VGA word offset 0 now
 A
-It is not a functional problem because the current renderer writes complete pixels to the framebuffer IP. But it is important to document clearly, because the names like FIGHTER_MMIO_REG_GAME_STATE now alias offset 0, which the current hardware interprets as REG_CONTROL. For presentation, we should explain that the active hardware interface is framebuffer-based.
+Word offset 0 is the VGA control register. Software reads it to check swap status and writes bit 1 to request a buffer swap at the next vblank. It is not a game-state word.
 
 Section 9 Verification, About 9 Minutes
 
