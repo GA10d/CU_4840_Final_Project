@@ -1,6 +1,13 @@
 #include "fighter_game.h"
 #include "fighter_animation.h"
 
+/*
+ * 轻量级单元测试。
+ *
+ * 测试核心游戏逻辑的菜单切换、攻击命中、倒计时和动画状态选择。这里不访问
+ * /dev/mem 或 FPGA 寄存器，因此可以在普通开发机上运行。
+ */
+
 #include <stdio.h>
 #include <string.h>
 

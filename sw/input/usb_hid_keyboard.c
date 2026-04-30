@@ -1,5 +1,12 @@
 #include "usb_hid_keyboard.h"
 
+/*
+ * libusb 键盘管理。
+ *
+ * 扫描 USB HID boot keyboard，找到 interrupt IN endpoint 后周期性读取
+ * 8-byte 键盘报告。游戏层只看到整理后的 usb_hid_keyboard_report_t。
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -8,6 +15,7 @@
 #define USB_SUBCLASS_BOOT 0x01
 #define USB_PROTOCOL_KEYBOARD 0x01
 
+/* 释放单个 USB 键盘设备的 interface 和 libusb handle。 */
 static void usb_hid_keyboard_device_close(usb_hid_keyboard_device_t *device) {
   if (!device || !device->connected) {
     return;
@@ -21,6 +29,7 @@ static void usb_hid_keyboard_device_close(usb_hid_keyboard_device_t *device) {
   memset(device, 0, sizeof(*device));
 }
 
+/* 在 HID interface 中寻找 interrupt IN endpoint，用来读取键盘报告。 */
 static int usb_hid_keyboard_find_endpoint(const struct libusb_interface_descriptor *desc,
                                           uint8_t *endpoint_address) {
   int i;
@@ -41,6 +50,7 @@ static int usb_hid_keyboard_find_endpoint(const struct libusb_interface_descript
   return -1;
 }
 
+/* 检查一个 USB 设备是否是 boot keyboard，若是则打开并保存端点信息。 */
 static int usb_hid_keyboard_probe_device(libusb_device *usb_device,
                                          usb_hid_keyboard_device_t *device) {
   struct libusb_device_descriptor device_desc;
@@ -130,6 +140,7 @@ static int usb_hid_keyboard_probe_device(libusb_device *usb_device,
   return 0;
 }
 
+/* 初始化 libusb，上限扫描 max_devices 个键盘设备。 */
 int usb_hid_keyboard_manager_init(usb_hid_keyboard_manager_t *manager,
                                   size_t max_devices) {
   libusb_device **device_list = NULL;
@@ -178,6 +189,7 @@ int usb_hid_keyboard_manager_init(usb_hid_keyboard_manager_t *manager,
   return 0;
 }
 
+/* 关闭管理器中的所有键盘并释放 libusb context。 */
 void usb_hid_keyboard_manager_close(usb_hid_keyboard_manager_t *manager) {
   size_t i;
 
@@ -196,6 +208,7 @@ void usb_hid_keyboard_manager_close(usb_hid_keyboard_manager_t *manager) {
   memset(manager, 0, sizeof(*manager));
 }
 
+/* 轮询某个键盘的 interrupt endpoint，读取最新 HID 报告。 */
 int usb_hid_keyboard_manager_poll(usb_hid_keyboard_manager_t *manager,
                                   usb_hid_keyboard_report_t *reports,
                                   size_t report_capacity,

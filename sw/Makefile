@@ -1,5 +1,12 @@
 CC ?= gcc
 PKG_CONFIG ?= pkg-config
+
+# 软件构建脚本。
+# 这里根据本机是否能找到 libusb 自动决定是否编译 USB 键盘输入 demo。
+# 主要目标：
+# - phase1_demo：完整游戏主循环。
+# - phase1_test：普通主机可运行的逻辑测试。
+# - audio_probe/vga_probe：通过 /dev/mem 探测 32-bit MMIO 寄存器。
 UNAME_S := $(shell uname -s 2>/dev/null || echo unknown)
 UNAME_M := $(shell uname -m 2>/dev/null || echo unknown)
 BUILD_SIGNATURE_FILE := .build_signature

@@ -1,6 +1,12 @@
 # Generate Quartus project files for the DE1-SoC board
 #
 # Stephen A. Edwards, Columbia University
+#
+# 中文说明：
+# 这个脚本生成 Quartus 工程并设置 DE1-SoC 引脚约束。它不定义 MMIO 寄存器，
+# 只把顶层 soc_system_top.sv、Qsys 生成的 qip 和开发板物理引脚连接起来。
+# 位宽来自板级接口本身，例如 HPS_DDR3_DQ[31:0] 是 32-bit DDR3 数据总线，
+# VGA_R/G/B[7:0] 是每色 8-bit DAC 输入。
 
 # Invoke as
 #

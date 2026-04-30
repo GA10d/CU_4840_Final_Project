@@ -1,7 +1,15 @@
 #include "fighter_input.h"
 
+/*
+ * 输入解析层。
+ *
+ * USB HID 键盘报告只告诉我们“哪些键当前按下”；本文件把它转换成菜单动作
+ * 和玩家动作，并通过 previous/current 状态识别“刚按下”的边沿事件。
+ */
+
 #include <string.h>
 
+/* 把 USB HID 键盘报告转换成游戏按钮状态。 */
 static fighter_button_state_t fighter_buttons_from_report(
     const usb_hid_keyboard_report_t *report) {
   fighter_button_state_t buttons;
@@ -22,10 +30,12 @@ static fighter_button_state_t fighter_buttons_from_report(
   return buttons;
 }
 
+/* 判断一个按钮是否在本帧刚按下，用于菜单确认和攻击触发。 */
 static int fighter_button_pressed(bool current, bool previous) {
   return current && !previous;
 }
 
+/* 初始化菜单输入解析器，默认选中 START。 */
 void fighter_menu_parser_init(fighter_menu_parser_t *parser) {
   if (!parser) {
     return;
@@ -35,6 +45,7 @@ void fighter_menu_parser_init(fighter_menu_parser_t *parser) {
   parser->selected_item = FIGHTER_MENU_ITEM_START;
 }
 
+/* 初始化玩家输入解析器，清空上一帧按钮状态。 */
 void fighter_player_parser_init(fighter_player_parser_t *parser) {
   if (!parser) {
     return;
@@ -43,6 +54,7 @@ void fighter_player_parser_init(fighter_player_parser_t *parser) {
   memset(parser, 0, sizeof(*parser));
 }
 
+/* 根据当前键盘报告更新菜单选择和菜单动作。 */
 void fighter_menu_parser_update(fighter_menu_parser_t *parser,
                                 const usb_hid_keyboard_report_t *report,
                                 fighter_menu_result_t *result) {
@@ -75,6 +87,7 @@ void fighter_menu_parser_update(fighter_menu_parser_t *parser,
   parser->previous_buttons = buttons;
 }
 
+/* 根据当前键盘报告生成玩家移动、跳跃、格挡和攻击命令。 */
 void fighter_player_parser_update(fighter_player_parser_t *parser,
                                   const usb_hid_keyboard_report_t *report,
                                   fighter_player_result_t *result) {
@@ -140,6 +153,7 @@ void fighter_player_parser_update(fighter_player_parser_t *parser,
   parser->previous_buttons = buttons;
 }
 
+/* 返回攻击命令的人类可读名称，用于日志和调试输出。 */
 const char *fighter_attack_command_name(fighter_attack_command_t command) {
   switch (command) {
     case FIGHTER_ATTACK_NONE:
@@ -163,6 +177,7 @@ const char *fighter_attack_command_name(fighter_attack_command_t command) {
   }
 }
 
+/* 返回菜单项的人类可读名称，用于终端/调试输出。 */
 const char *fighter_menu_item_name(fighter_menu_item_t item) {
   switch (item) {
     case FIGHTER_MENU_ITEM_START:

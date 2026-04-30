@@ -1,5 +1,18 @@
 #include "fighter_audio.h"
 
+/*
+ * 音频后端实现。
+ *
+ * 这个文件同时支持三种播放方式：
+ * 1. disabled：无音频，便于没有音频环境时运行游戏逻辑。
+ * 2. command：调用系统播放器（aplay/ffplay/afplay）播放 wav。
+ * 3. MMIO：通过 /dev/mem 映射 FPGA 上的 WM8731 音频 IP 寄存器，把采样
+ *    直接写入硬件 FIFO。
+ *
+ * MMIO 寄存器均按 32-bit word 访问，因为 FPGA 侧 Avalon-MM 数据宽度为
+ * 32 bit，HPS 端使用 volatile uint32_t 可保证每次都是实际硬件访问。
+ */
+
 #include <errno.h>
 #include <fcntl.h>
 #include <inttypes.h>
@@ -30,11 +43,22 @@ enum {
 
 enum {
   FIGHTER_AUDIO_MMIO_TARGET_RATE = 48000,
+  /* CONTROL bit2/bit3：硬件约定的清 FIFO 控制位，寄存器本身仍是 32 bit。 */
   FIGHTER_AUDIO_MMIO_CONTROL_CLEAR_READ = 1 << 2,
   FIGHTER_AUDIO_MMIO_CONTROL_CLEAR_WRITE = 1 << 3
 };
 
-/* Lab 3 style MMIO contract expected by the HPS-side audio bring-up path. */
+/*
+ * 音频 IP 的 32-bit MMIO 寄存器表：
+ * 0 CONTROL   读状态/写清除位。
+ * 1 FIFOSPACE 读左右 FIFO 剩余空间，高两个字节分别代表左右声道。
+ * 2 LEFTDATA  写左声道 sample word。
+ * 3 RIGHTDATA 写右声道 sample word。
+ *
+ * 位宽为什么都是 32 bit：这是 Avalon-MM slave 的数据总线宽度。音频有效
+ * 采样是 int16，但软件写入时左移 16 位放到高半字，配合 WM8731
+ * left-justified 16-bit 串行格式；低 16 bit 保留为 0。
+ */
 enum {
   FIGHTER_AUDIO_MMIO_REG_CONTROL = 0,
   FIGHTER_AUDIO_MMIO_REG_FIFOSPACE = 1,
@@ -44,6 +68,7 @@ enum {
 };
 
 typedef struct {
+  /* samples 以 interleaved stereo int16 保存：L,R,L,R... */
   int16_t *samples;
   size_t frame_count;
 } fighter_audio_clip_t;
@@ -55,9 +80,12 @@ typedef struct {
   int thread_started;
   int stop_requested;
   int mem_fd;
+  /* bridge_reset_reg 是 Cyclone V HPS bridge reset 寄存器，32 bit 宽；
+   * 清 bit[1:0] 使能 HPS-to-FPGA / lightweight HPS-to-FPGA bridge。 */
   void *bridge_map;
   size_t bridge_map_length;
   volatile uint32_t *bridge_reset_reg;
+  /* audio_regs 指向自定义音频 IP 的 4 个 32-bit word 寄存器。 */
   void *audio_map;
   size_t audio_map_length;
   volatile uint32_t *audio_regs;
@@ -71,6 +99,7 @@ typedef struct {
 static const off_t k_fighter_audio_default_bridge_reset_addr = (off_t)0xFFD0501C;
 static const off_t k_fighter_audio_default_mmio_addr = (off_t)0xFF200000;
 
+/* 写入音频上下文状态字符串，用于向主程序解释当前后端状态或错误。 */
 static void fighter_audio_set_status_detail(fighter_audio_context_t *context,
                                             const char *fmt,
                                             ...) {
@@ -85,6 +114,7 @@ static void fighter_audio_set_status_detail(fighter_audio_context_t *context,
   va_end(args);
 }
 
+/* 在 PATH 中寻找播放器可执行文件，返回解析后的路径。 */
 static const char *fighter_find_in_path(const char *name) {
   static char resolved_path[512];
   const char *path_env;
@@ -123,11 +153,13 @@ static const char *fighter_find_in_path(const char *name) {
   return NULL;
 }
 
+/* 回收已退出的子进程，避免命令播放器留下僵尸进程。 */
 static void fighter_audio_reap_children(void) {
   while (waitpid(-1, NULL, WNOHANG) > 0) {
   }
 }
 
+/* 对 shell 命令参数做单引号转义，避免路径中的特殊字符破坏命令。 */
 static int fighter_audio_shell_quote(const char *src, char *dst, size_t size) {
   size_t used = 0;
 
@@ -160,6 +192,7 @@ static int fighter_audio_shell_quote(const char *src, char *dst, size_t size) {
   return 0;
 }
 
+/* fork 后通过 /bin/sh -c 异步执行播放命令。 */
 static int fighter_audio_spawn_shell(const char *command) {
   pid_t pid;
 
@@ -181,6 +214,7 @@ static int fighter_audio_spawn_shell(const char *command) {
   return (int)pid;
 }
 
+/* 安全复制字符串，确保目标缓冲区以 NUL 结尾。 */
 static int fighter_audio_copy_string(const char *src, char *dst, size_t dst_size) {
   if (!src || !dst || dst_size == 0) {
     return -1;
@@ -194,6 +228,7 @@ static int fighter_audio_copy_string(const char *src, char *dst, size_t dst_size
   return 0;
 }
 
+/* 从环境变量解析物理地址，未设置时使用默认 MMIO 地址。 */
 static int fighter_audio_parse_env_address(const char *env_name,
                                            off_t default_value,
                                            off_t *value_out) {
@@ -221,6 +256,7 @@ static int fighter_audio_parse_env_address(const char *env_name,
   return 0;
 }
 
+/* 在 Linux 上探测可用的 aplay 设备名，优先使用环境指定设备。 */
 static int fighter_audio_detect_aplay_device(char *buffer, size_t buffer_size) {
   const char *override;
   FILE *stream;
@@ -254,6 +290,7 @@ static int fighter_audio_detect_aplay_device(char *buffer, size_t buffer_size) {
   return -1;
 }
 
+/* 构造播放一次音效的 shell 命令。 */
 static void fighter_audio_build_once_command(const fighter_audio_context_t *context,
                                              const char *quoted_path,
                                              char *buffer,
@@ -289,6 +326,7 @@ static void fighter_audio_build_once_command(const fighter_audio_context_t *cont
   }
 }
 
+/* 构造循环播放 BGM 的 shell 命令。 */
 static void fighter_audio_build_loop_command(const fighter_audio_context_t *context,
                                              const char *quoted_path,
                                              char *buffer,
@@ -327,6 +365,7 @@ static void fighter_audio_build_loop_command(const fighter_audio_context_t *cont
   }
 }
 
+/* 选择系统播放器并准备 command 音频后端。 */
 static int fighter_audio_prepare_command_backend(fighter_audio_context_t *context) {
   if (!context) {
     return -1;
@@ -353,6 +392,7 @@ static int fighter_audio_prepare_command_backend(fighter_audio_context_t *contex
   return -1;
 }
 
+/* 释放一个已加载 WAV clip 的 sample 缓冲。 */
 static void fighter_audio_clip_reset(fighter_audio_clip_t *clip) {
   if (!clip) {
     return;
@@ -363,15 +403,18 @@ static void fighter_audio_clip_reset(fighter_audio_clip_t *clip) {
   clip->frame_count = 0;
 }
 
+/* 从字节流读取 little-endian 16-bit 数值。 */
 static uint16_t fighter_audio_read_le16(const unsigned char *src) {
   return (uint16_t)src[0] | (uint16_t)((uint16_t)src[1] << 8);
 }
 
+/* 从字节流读取 little-endian 32-bit 数值。 */
 static uint32_t fighter_audio_read_le32(const unsigned char *src) {
   return (uint32_t)src[0] | ((uint32_t)src[1] << 8) |
          ((uint32_t)src[2] << 16) | ((uint32_t)src[3] << 24);
 }
 
+/* 把源 PCM16 数据重采样/混合为 48kHz stereo int16。 */
 static int fighter_audio_resample_pcm16(fighter_audio_clip_t *clip,
                                         const int16_t *src_samples,
                                         size_t src_frame_count,
@@ -433,6 +476,7 @@ static int fighter_audio_resample_pcm16(fighter_audio_clip_t *clip,
   return 0;
 }
 
+/* 读取 WAV 文件，解析 fmt/data chunk，并装载为内部 PCM clip。 */
 static int fighter_audio_clip_load_wav(fighter_audio_clip_t *clip,
                                        const char *path) {
   FILE *stream;
@@ -538,6 +582,7 @@ static int fighter_audio_clip_load_wav(fighter_audio_clip_t *clip,
   return result;
 }
 
+/* 用 /dev/mem 映射音频 IP 或 bridge reset 物理寄存器。 */
 static int fighter_audio_map_physical(int mem_fd,
                                       off_t physical_addr,
                                       size_t span,
@@ -577,6 +622,7 @@ static int fighter_audio_map_physical(int mem_fd,
   return 0;
 }
 
+/* 解除 MMIO mmap 区域并清空映射记录。 */
 static void fighter_audio_mmio_unmap_region(void **map_base, size_t *map_length) {
   if (!map_base || !map_length || !*map_base || *map_length == 0) {
     return;
@@ -587,6 +633,7 @@ static void fighter_audio_mmio_unmap_region(void **map_base, size_t *map_length)
   *map_length = 0;
 }
 
+/* 释放 MMIO 后端已加载的所有音频 clip。 */
 static void fighter_audio_mmio_reset_clips(fighter_audio_mmio_state_t *state) {
   int i;
 
@@ -599,6 +646,7 @@ static void fighter_audio_mmio_reset_clips(fighter_audio_mmio_state_t *state) {
   }
 }
 
+/* 为 MMIO 后端预加载菜单 BGM、确认音和 game over 音效。 */
 static int fighter_audio_mmio_load_clips(fighter_audio_mmio_state_t *state) {
   int track;
 
@@ -618,6 +666,7 @@ static int fighter_audio_mmio_load_clips(fighter_audio_mmio_state_t *state) {
   return 0;
 }
 
+/* 向音频 IP control 寄存器写清 FIFO 位，重置硬件播放缓冲。 */
 static void fighter_audio_mmio_clear_fifos(fighter_audio_mmio_state_t *state) {
   if (!state || !state->audio_regs) {
     return;
@@ -629,6 +678,7 @@ static void fighter_audio_mmio_clear_fifos(fighter_audio_mmio_state_t *state) {
   state->audio_regs[FIGHTER_AUDIO_MMIO_REG_CONTROL] = 0;
 }
 
+/* 读取音频 IP fifospace 状态，确认 MMIO 映射到了可响应的硬件。 */
 static int fighter_audio_mmio_probe(fighter_audio_mmio_state_t *state,
                                     uint32_t *fifospace_out) {
   uint32_t fifospace;
@@ -655,6 +705,7 @@ static int fighter_audio_mmio_probe(fighter_audio_mmio_state_t *state,
   return 0;
 }
 
+/* 清 HPS bridge reset bit[1:0]，允许 HPS 访问 FPGA 音频 IP。 */
 static int fighter_audio_mmio_enable_bridges(fighter_audio_mmio_state_t *state) {
   uint32_t value;
 
@@ -668,11 +719,13 @@ static int fighter_audio_mmio_enable_bridges(fighter_audio_mmio_state_t *state) 
   return 0;
 }
 
+/* 检查 track 枚举是否落在可播放音频资源范围内。 */
 static int fighter_audio_track_is_valid(fighter_audio_track_t track) {
   return track > FIGHTER_AUDIO_TRACK_NONE &&
          track <= FIGHTER_AUDIO_TRACK_GAME_OVER;
 }
 
+/* 在持锁状态下切换 MMIO 播放 track，并从第 0 帧开始播放。 */
 static void fighter_audio_mmio_set_track_locked(fighter_audio_mmio_state_t *state,
                                                 fighter_audio_track_t track,
                                                 int loop_enabled) {
@@ -695,6 +748,7 @@ static void fighter_audio_mmio_set_track_locked(fighter_audio_mmio_state_t *stat
   state->playing = 1;
 }
 
+/* 在持锁状态下停止 MMIO 播放并清空当前 track。 */
 static void fighter_audio_mmio_stop_locked(fighter_audio_mmio_state_t *state) {
   if (!state) {
     return;
@@ -706,6 +760,7 @@ static void fighter_audio_mmio_stop_locked(fighter_audio_mmio_state_t *state) {
   state->playing = 0;
 }
 
+/* 在持锁状态下根据 fifospace 把 PCM sample 填入左右声道硬件 FIFO。 */
 static void fighter_audio_mmio_fill_fifo_locked(fighter_audio_mmio_state_t *state) {
   fighter_audio_clip_t *clip;
   uint32_t fifospace;
@@ -752,6 +807,7 @@ static void fighter_audio_mmio_fill_fifo_locked(fighter_audio_mmio_state_t *stat
   }
 }
 
+/* MMIO 音频线程入口：循环填充硬件 FIFO，直到收到 stop 请求。 */
 static void *fighter_audio_mmio_thread_main(void *opaque) {
   fighter_audio_mmio_state_t *state = (fighter_audio_mmio_state_t *)opaque;
   struct timespec delay;
@@ -773,6 +829,7 @@ static void *fighter_audio_mmio_thread_main(void *opaque) {
   return NULL;
 }
 
+/* 销毁 MMIO 音频后端：停止线程、释放资源、关闭映射和文件描述符。 */
 static void fighter_audio_mmio_destroy(fighter_audio_mmio_state_t *state) {
   if (!state) {
     return;
@@ -798,6 +855,7 @@ static void fighter_audio_mmio_destroy(fighter_audio_mmio_state_t *state) {
   free(state);
 }
 
+/* 初始化 MMIO 音频后端，包括 /dev/mem、bridge、寄存器映射、资源和线程。 */
 static int fighter_audio_mmio_init(fighter_audio_context_t *context) {
   fighter_audio_mmio_state_t *state;
   off_t bridge_reset_addr;
@@ -916,6 +974,7 @@ static int fighter_audio_mmio_init(fighter_audio_context_t *context) {
   return 0;
 }
 
+/* command 后端停止循环 BGM，结束之前启动的播放器进程。 */
 static void fighter_audio_stop_loop_command(fighter_audio_context_t *context) {
   pid_t pid;
 
@@ -930,6 +989,7 @@ static void fighter_audio_stop_loop_command(fighter_audio_context_t *context) {
   context->looping_track = FIGHTER_AUDIO_TRACK_NONE;
 }
 
+/* command 后端开始循环播放指定 track。 */
 static void fighter_audio_start_loop_command(fighter_audio_context_t *context,
                                              fighter_audio_track_t track) {
   const char *path;
@@ -965,6 +1025,7 @@ static void fighter_audio_start_loop_command(fighter_audio_context_t *context,
   }
 }
 
+/* command 后端播放一次指定音效。 */
 static void fighter_audio_play_once_command(fighter_audio_context_t *context,
                                             fighter_audio_track_t track) {
   const char *path;
@@ -990,6 +1051,7 @@ static void fighter_audio_play_once_command(fighter_audio_context_t *context,
   (void)fighter_audio_spawn_shell(command);
 }
 
+/* MMIO 后端停止循环播放并清硬件 FIFO。 */
 static void fighter_audio_stop_loop_mmio(fighter_audio_context_t *context) {
   fighter_audio_mmio_state_t *state;
 
@@ -1006,6 +1068,7 @@ static void fighter_audio_stop_loop_mmio(fighter_audio_context_t *context) {
   context->looping_track = FIGHTER_AUDIO_TRACK_NONE;
 }
 
+/* MMIO 后端切换到指定循环 track。 */
 static void fighter_audio_start_loop_mmio(fighter_audio_context_t *context,
                                           fighter_audio_track_t track) {
   fighter_audio_mmio_state_t *state;
@@ -1024,6 +1087,7 @@ static void fighter_audio_start_loop_mmio(fighter_audio_context_t *context,
   context->looping_track = track;
 }
 
+/* MMIO 后端播放一次短音效；当前实现通过切换 track 方式触发。 */
 static void fighter_audio_play_once_mmio(fighter_audio_context_t *context,
                                          fighter_audio_track_t track) {
   fighter_audio_mmio_state_t *state;
@@ -1042,6 +1106,7 @@ static void fighter_audio_play_once_mmio(fighter_audio_context_t *context,
   context->looping_track = FIGHTER_AUDIO_TRACK_NONE;
 }
 
+/* 根据当前后端分派“开始循环播放”命令。 */
 static void fighter_audio_start_loop(fighter_audio_context_t *context,
                                      fighter_audio_track_t track) {
   if (!context) {
@@ -1055,6 +1120,7 @@ static void fighter_audio_start_loop(fighter_audio_context_t *context,
   }
 }
 
+/* 根据当前后端分派“停止循环播放”命令。 */
 static void fighter_audio_stop_loop(fighter_audio_context_t *context) {
   if (!context) {
     return;
@@ -1067,6 +1133,7 @@ static void fighter_audio_stop_loop(fighter_audio_context_t *context) {
   }
 }
 
+/* 根据当前后端分派“播放一次音效”命令。 */
 static void fighter_audio_play_once(fighter_audio_context_t *context,
                                     fighter_audio_track_t track) {
   if (!context) {
@@ -1080,6 +1147,7 @@ static void fighter_audio_play_once(fighter_audio_context_t *context,
   }
 }
 
+/* 清空本帧音频命令队列。 */
 void fighter_audio_command_list_clear(fighter_audio_command_list_t *list) {
   if (!list) {
     return;
@@ -1088,6 +1156,7 @@ void fighter_audio_command_list_clear(fighter_audio_command_list_t *list) {
   memset(list, 0, sizeof(*list));
 }
 
+/* 向音频命令队列追加命令，队列满或参数无效时返回错误。 */
 int fighter_audio_command_list_push(fighter_audio_command_list_t *list,
                                     fighter_audio_command_type_t type,
                                     fighter_audio_track_t track) {
@@ -1101,6 +1170,7 @@ int fighter_audio_command_list_push(fighter_audio_command_list_t *list,
   return 0;
 }
 
+/* 返回音频 track 的可读名称。 */
 const char *fighter_audio_track_name(fighter_audio_track_t track) {
   switch (track) {
     case FIGHTER_AUDIO_TRACK_MENU_BGM:
@@ -1114,6 +1184,7 @@ const char *fighter_audio_track_name(fighter_audio_track_t track) {
   }
 }
 
+/* 返回音频 track 对应的资源文件路径。 */
 const char *fighter_audio_track_path(fighter_audio_track_t track) {
   switch (track) {
     case FIGHTER_AUDIO_TRACK_MENU_BGM:
@@ -1127,6 +1198,7 @@ const char *fighter_audio_track_path(fighter_audio_track_t track) {
   }
 }
 
+/* 返回当前音频后端名称。 */
 const char *fighter_audio_backend_name(const fighter_audio_context_t *context) {
   static char description[128];
 
@@ -1168,6 +1240,7 @@ const char *fighter_audio_backend_name(const fighter_audio_context_t *context) {
   }
 }
 
+/* 初始化音频选项，默认允许 command 播放后端。 */
 void fighter_audio_options_init(fighter_audio_options_t *options) {
   if (!options) {
     return;
@@ -1176,6 +1249,7 @@ void fighter_audio_options_init(fighter_audio_options_t *options) {
   memset(options, 0, sizeof(*options));
 }
 
+/* 初始化音频系统，优先尝试 MMIO，必要时回退到 command/disabled 后端。 */
 int fighter_audio_init(fighter_audio_context_t *context,
                        const fighter_audio_options_t *options) {
   int enable_command_audio;
@@ -1216,6 +1290,7 @@ int fighter_audio_init(fighter_audio_context_t *context,
   return 0;
 }
 
+/* 关闭音频系统，停止播放并释放后端资源。 */
 void fighter_audio_close(fighter_audio_context_t *context) {
   if (!context) {
     return;
@@ -1235,6 +1310,7 @@ void fighter_audio_close(fighter_audio_context_t *context) {
   context->looping_track = FIGHTER_AUDIO_TRACK_NONE;
 }
 
+/* 消费一帧内的音频命令队列，并分派到实际后端。 */
 void fighter_audio_process_commands(fighter_audio_context_t *context,
                                     const fighter_audio_command_list_t *commands) {
   size_t i;

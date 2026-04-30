@@ -8,7 +8,15 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
+/*
+ * 音频 MMIO 探测程序。
+ *
+ * 这个小工具不走完整游戏音频线程，只负责打开 /dev/mem、使能 HPS-FPGA
+ * bridge、读取 WM8731 音频 IP 的 4 个 32-bit 寄存器，确认硬件是否响应。
+ */
+
 enum {
+  /* 音频 IP 暴露 4 个 32-bit word：control/fifospace/leftdata/rightdata。 */
   FIGHTER_AUDIO_MMIO_REG_COUNT = 4
 };
 

@@ -1,6 +1,14 @@
 #ifndef FIGHTER_RENDERER_H
 #define FIGHTER_RENDERER_H
 
+/*
+ * 渲染系统公开接口。
+ *
+ * renderer 会优先尝试 FPGA VGA MMIO 或 Linux framebuffer，失败时退回终端。
+ * MMIO 模式下 vga_regs 指向 32-bit Avalon-MM 寄存器数组，framebuffer word
+ * 中打包两个 RGB565 像素。
+ */
+
 #include <stdint.h>
 
 #include "fighter_animation.h"
@@ -17,6 +25,7 @@ typedef enum {
 } fighter_renderer_backend_t;
 
 typedef struct {
+  /* 渲染初始化选项：是否优先 framebuffer、终端输出间隔、fb 设备路径。 */
   int prefer_framebuffer;
   int console_interval_frames;
   const char *framebuffer_path;
@@ -24,12 +33,14 @@ typedef struct {
 
 #ifdef __linux__
 typedef struct {
+  /* 普通 RGB888 图片缓存，主要用于加载 PPM 资源。 */
   int width;
   int height;
   unsigned char *pixels;
 } fighter_rgb_image_t;
 
 typedef struct {
+  /* 已转换到目标 framebuffer 格式的图片缓存。 */
   int width;
   int height;
   int stride;
@@ -39,6 +50,7 @@ typedef struct {
 #endif
 
 typedef struct {
+  /* 渲染器运行状态，包含终端、Linux framebuffer 和 FPGA MMIO 三类后端资源。 */
   fighter_renderer_backend_t backend;
   int console_interval_frames;
   char framebuffer_path_used[64];
@@ -71,9 +83,11 @@ typedef struct {
   int vga_mem_fd;
   void *vga_bridge_map;
   unsigned long vga_bridge_map_length;
+  /* 32-bit HPS bridge reset register；清 bit[1:0] 后 lightweight bridge 可用。 */
   volatile uint32_t *vga_bridge_reset_reg;
   void *vga_regs_map;
   unsigned long vga_regs_map_length;
+  /* 32-bit VGA IP 寄存器数组，offset 定义见 fighter_vga_mmio.h。 */
   volatile uint32_t *vga_regs;
   unsigned long vga_mmio_addr;
   unsigned long vga_bridge_reset_addr;

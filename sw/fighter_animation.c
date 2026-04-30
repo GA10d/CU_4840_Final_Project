@@ -1,5 +1,13 @@
 #include "fighter_animation.h"
 
+/*
+ * 动画资源加载与选择逻辑。
+ *
+ * 负责从 game_assets/sprites 下读取 PPM 帧，按角色和动作整理成 clip。
+ * 渲染器只关心当前游戏状态对应哪一帧 sprite，这个文件把磁盘文件名、
+ * 动画循环和动作状态之间的映射封装起来。
+ */
+
 #include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
@@ -22,6 +30,7 @@ typedef struct {
   int count;
 } fighter_path_list_t;
 
+/* 释放单张 sprite 的像素和路径内存，并把结构体重置为空。 */
 static void fighter_free_sprite(fighter_sprite_t *sprite) {
   if (!sprite) {
     return;
@@ -34,6 +43,7 @@ static void fighter_free_sprite(fighter_sprite_t *sprite) {
   sprite->height = 0;
 }
 
+/* 释放一个动画 clip 中的所有帧，并清空帧数/循环参数。 */
 static void fighter_free_clip(fighter_animation_clip_t *clip) {
   int i;
 
@@ -51,6 +61,7 @@ static void fighter_free_clip(fighter_animation_clip_t *clip) {
   clip->loop = 0;
 }
 
+/* 释放某个角色的所有动作动画资源。 */
 static void fighter_free_animation_set(fighter_character_animation_set_t *set) {
   if (!set) {
     return;
@@ -77,6 +88,7 @@ static void fighter_free_animation_set(fighter_character_animation_set_t *set) {
   fighter_free_clip(&set->sweep_attack);
 }
 
+/* 本地实现 strdup，避免某些 C 标准库配置下没有声明。 */
 static char *fighter_strdup_local(const char *s) {
   size_t n;
   char *out;
@@ -94,6 +106,7 @@ static char *fighter_strdup_local(const char *s) {
   return out;
 }
 
+/* 判断文件名是否以 .ppm 结尾。 */
 static int fighter_has_ppm_extension(const char *name) {
   size_t len;
 
@@ -108,12 +121,14 @@ static int fighter_has_ppm_extension(const char *name) {
   return strcmp(name + len - 4, ".ppm") == 0;
 }
 
+/* qsort 比较函数，让 sprite 文件路径按字典序稳定排序。 */
 static int fighter_compare_paths(const void *lhs, const void *rhs) {
   const char *const *a = (const char *const *)lhs;
   const char *const *b = (const char *const *)rhs;
   return strcmp(*a, *b);
 }
 
+/* 释放目录扫描得到的路径列表。 */
 static void fighter_path_list_free(fighter_path_list_t *list) {
   int i;
 
@@ -129,6 +144,7 @@ static void fighter_path_list_free(fighter_path_list_t *list) {
   list->count = 0;
 }
 
+/* 扫描目录下所有 PPM 文件，收集并排序后供动画加载使用。 */
 static int fighter_collect_ppm_files(const char *dir_path,
                                      fighter_path_list_t *out_list) {
   DIR *dir;
@@ -199,6 +215,7 @@ static int fighter_collect_ppm_files(const char *dir_path,
   return 0;
 }
 
+/* 从 PPM 文件读取下一个 token，并跳过空白和 # 注释行。 */
 static int fighter_read_token(FILE *fp, char *buffer, size_t buffer_size) {
   int c;
   size_t i;
@@ -232,6 +249,7 @@ static int fighter_read_token(FILE *fp, char *buffer, size_t buffer_size) {
   return i > 0;
 }
 
+/* 读取 P6/P3 PPM 图片，解码为 RGB888 像素缓冲。 */
 static int fighter_load_ppm(const char *path, fighter_sprite_t *out_sprite) {
   FILE *fp;
   char token[64];
@@ -363,6 +381,7 @@ static int fighter_load_ppm(const char *path, fighter_sprite_t *out_sprite) {
   return 0;
 }
 
+/* 把一个目录中的 PPM 序列加载成动画 clip。 */
 static int fighter_load_clip_from_directory(const char *dir_path,
                                             int ticks_per_frame,
                                             int loop,
@@ -408,6 +427,7 @@ static int fighter_load_clip_from_directory(const char *dir_path,
   return 0;
 }
 
+/* 拼接根目录和子目录名，形成动画资源目录路径。 */
 static int fighter_join_path(char *out_path,
                              size_t out_size,
                              const char *base,
@@ -422,6 +442,7 @@ static int fighter_join_path(char *out_path,
   return 0;
 }
 
+/* 判断资源目录是否存在且确实是目录。 */
 static int fighter_directory_exists(const char *path) {
   DIR *dir;
 
@@ -438,6 +459,7 @@ static int fighter_directory_exists(const char *path) {
   return 1;
 }
 
+/* 尝试从角色根目录加载某个动作 clip，失败时打印路径帮助定位资源问题。 */
 static int fighter_try_load_clip(const char *base_root,
                                  const char *relative_dir,
                                  int ticks_per_frame,
@@ -458,6 +480,7 @@ static int fighter_try_load_clip(const char *base_root,
   return rc;
 }
 
+/* 加载一个角色的全部动作动画，包含站立、移动、攻击、受击和胜利等。 */
 static int fighter_load_character_animation_set(
     const char *base_root,
     fighter_character_animation_set_t *set) {
@@ -543,6 +566,7 @@ static int fighter_load_character_animation_set(
   return 0;
 }
 
+/* 根据角色 ID 选择 Ryu 或 Ken 的动画资源集合。 */
 static const fighter_character_animation_set_t *
 fighter_select_character_set(const fighter_animation_system_t *system,
                              fighter_character_id_t character_id) {
@@ -559,6 +583,7 @@ fighter_select_character_set(const fighter_animation_system_t *system,
   }
 }
 
+/* 根据玩家当前 visual_state 和 last_attack 选择应播放的动画 clip。 */
 static const fighter_animation_clip_t *
 fighter_select_clip_for_player(const fighter_player_state_t *player,
                                const fighter_character_animation_set_t *set) {
@@ -617,6 +642,7 @@ fighter_select_clip_for_player(const fighter_player_state_t *player,
   }
 }
 
+/* 重置单个玩家的动画播放状态，从指定 clip 的第 0 帧开始。 */
 static void fighter_animation_state_reset(fighter_player_animation_state_t *state,
                                           const fighter_animation_clip_t *clip) {
   if (!state) {
@@ -628,6 +654,7 @@ static void fighter_animation_state_reset(fighter_player_animation_state_t *stat
   state->tick_in_frame = 0;
 }
 
+/* 推进动画播放时间，循环动画回到开头，非循环动画停在最后一帧。 */
 static void fighter_animation_state_advance(
     fighter_player_animation_state_t *state) {
   const fighter_animation_clip_t *clip;
@@ -658,6 +685,7 @@ static void fighter_animation_state_advance(
   }
 }
 
+/* 使用环境变量或默认资源路径初始化动画系统。 */
 int fighter_animation_system_init(fighter_animation_system_t *system) {
   const char *asset_root = getenv("FIGHTER_ASSET_ROOT");
   char ryu_root[PATH_MAX];
@@ -686,6 +714,7 @@ int fighter_animation_system_init(fighter_animation_system_t *system) {
                                                   FIGHTER_REPO_KEN_ROOT);
 }
 
+/* 使用指定 Ryu/Ken 资源根目录初始化动画系统，方便测试或部署路径切换。 */
 int fighter_animation_system_init_with_roots(fighter_animation_system_t *system,
                                              const char *ryu_root,
                                              const char *ken_root) {
@@ -714,6 +743,7 @@ int fighter_animation_system_init_with_roots(fighter_animation_system_t *system,
   return 0;
 }
 
+/* 释放动画系统持有的全部角色资源。 */
 void fighter_animation_system_close(fighter_animation_system_t *system) {
   int i;
 
@@ -729,6 +759,7 @@ void fighter_animation_system_close(fighter_animation_system_t *system) {
   }
 }
 
+/* 每帧根据游戏状态更新两名玩家的当前 clip 和帧索引。 */
 void fighter_animation_system_update(fighter_animation_system_t *system,
                                      const fighter_game_t *game) {
   int i;
@@ -753,6 +784,7 @@ void fighter_animation_system_update(fighter_animation_system_t *system,
   }
 }
 
+/* 返回指定玩家当前应该绘制的 sprite。 */
 const fighter_sprite_t *fighter_animation_current_sprite(
     const fighter_animation_system_t *system,
     int player_index) {
@@ -777,6 +809,7 @@ const fighter_sprite_t *fighter_animation_current_sprite(
   return &clip->frames[state->frame_index];
 }
 
+/* 返回指定玩家当前正在播放的动画 clip。 */
 const fighter_animation_clip_t *fighter_animation_current_clip(
     const fighter_animation_system_t *system,
     int player_index) {
@@ -788,6 +821,7 @@ const fighter_animation_clip_t *fighter_animation_current_clip(
   return system->players[player_index].current_clip;
 }
 
+/* 返回指定玩家当前动画帧编号，便于测试和调试。 */
 int fighter_animation_current_frame_index(
     const fighter_animation_system_t *system,
     int player_index) {

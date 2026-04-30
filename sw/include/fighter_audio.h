@@ -1,6 +1,13 @@
 #ifndef FIGHTER_AUDIO_H
 #define FIGHTER_AUDIO_H
 
+/*
+ * 音频系统公开接口。
+ *
+ * 游戏逻辑只产生“播放一次/开始循环/停止循环”等命令；具体走系统播放器
+ * 还是 FPGA MMIO 音频后端由 fighter_audio_init 根据环境选择。
+ */
+
 #include <stddef.h>
 
 #ifdef __cplusplus
@@ -29,6 +36,7 @@ typedef struct {
 #define FIGHTER_AUDIO_MAX_COMMANDS 4
 
 typedef struct {
+  /* 一帧内累积的音频命令，主循环处理后清空。 */
   size_t count;
   fighter_audio_command_t commands[FIGHTER_AUDIO_MAX_COMMANDS];
 } fighter_audio_command_list_t;
@@ -44,6 +52,7 @@ typedef struct {
 } fighter_audio_options_t;
 
 typedef struct {
+  /* 音频后端运行状态；MMIO 地址对应 FPGA 侧 32-bit Avalon-MM 寄存器。 */
   fighter_audio_backend_t backend;
   fighter_audio_track_t looping_track;
   int one_shot_logged;

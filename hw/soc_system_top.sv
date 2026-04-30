@@ -30,6 +30,21 @@
 //                     web: http://www.terasic.com/
 //                     email: support@terasic.com
 
+// DE1-SoC 顶层封装。
+//
+// 这个文件把 Platform Designer 生成的 soc_system 接到开发板实际引脚上。
+// 项目自定义逻辑主要是 fighter_audio_0 和 fighter_vga_0：
+// - fighter_audio_0 输出 WM8731 所需的 XCK/BCLK/LRCK/DACDAT，并通过 FPGA_I2C
+//   配置 codec。
+// - fighter_vga_0 输出 VGA RGB/HS/VS/CLK/BLANK/SYNC。
+//
+// 位宽说明：
+// - HPS_DDR3_DQ 是 32 bit，对应 Cyclone V HPS DDR3 数据总线。
+// - VGA_R/G/B 各 8 bit，对应 DE1-SoC VGA DAC 的每色 8-bit 输入。
+// - GPIO_0/GPIO_1 各 36 bit、LEDR 10 bit、SW 10 bit 等都来自开发板引脚数量。
+// - 自定义 MMIO 寄存器不在本文件展开，它们位于 fighter_audio.sv 和
+//   fighter_vga_renderer.sv，均接到 32-bit Avalon-MM 数据总线。
+
 module soc_system_top(
 
  ///////// ADC /////////
@@ -188,8 +203,11 @@ module soc_system_top(
  output        VGA_VS
 );
 
+   // 音频 IP 初始化状态接到 LEDR[0]/LEDR[1]，方便不用软件也能看硬件 bring-up。
    wire audio_init_done;
    wire audio_init_error;
+   // Platform Designer 生成的系统实例。这里主要完成 HPS DDR3、HPS 外设、
+   // 自定义音频 IP 和 VGA IP 的板级连线。
    soc_system soc_system0(
      .clk_clk                      ( CLOCK_50 ),
      .reset_reset_n                ( 1'b1 ),
@@ -289,8 +307,8 @@ module soc_system_top(
      .fighter_vga_0_vga_vga_sync_n  ( VGA_SYNC_N )
    );
 
-   // The following quiet the "no driver" warnings for output
-   // pins and should be removed if you use any of these peripherals
+   // 下方把当前项目未使用的板级外设引脚接到安全默认值，用来消除 Quartus
+   // 对“输出无驱动”的警告。如果后续启用这些外设，应删除对应默认赋值。
 
    assign ADC_CS_N = SW[1] ? SW[0] : 1'bZ;
    assign ADC_DIN  = SW[0];

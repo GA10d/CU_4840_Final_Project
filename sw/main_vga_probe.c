@@ -10,6 +10,17 @@
 
 #include "fighter_vga_mmio.h"
 
+/*
+ * VGA MMIO 探测程序。
+ *
+ * 通过 /dev/mem 映射两个 32-bit 寄存器区域：
+ * - HPS bridge reset register (0xFFD0501C)：清 bit[1:0] 打开 HPS-FPGA bridge。
+ * - fighter_vga_0 自定义 IP：读取 IDENT/WIDTH/HEIGHT/STRIDE，并写入测试图案。
+ *
+ * 所有 VGA IP 寄存器都是 32-bit word，原因是 Avalon-MM 数据总线为 32 bit；
+ * framebuffer 中一个 word 打包两个 RGB565 像素。
+ */
+
 static const off_t k_default_bridge_reset_addr = (off_t)0xFFD0501C;
 static const off_t k_default_vga_mmio_addr = (off_t)0xFF240000;
 static const uint32_t k_vga_ident = 0x56504741U;

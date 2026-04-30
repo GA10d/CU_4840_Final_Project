@@ -1,5 +1,18 @@
 #include "fighter_renderer.h"
 
+/*
+ * 渲染后端实现。
+ *
+ * 运行环境不同会选择不同输出：
+ * - console：终端日志，方便测试。
+ * - framebuffer：Linux /dev/fb*，用于普通帧缓冲设备。
+ * - MMIO：通过 /dev/mem 映射 FPGA VGA IP，把 320x240 RGB565 背景缓冲
+ *   写入硬件 framebuffer 寄存器区。
+ *
+ * MMIO 路径使用 32-bit word 写入：硬件端一个 word 包两个 RGB565 像素，
+ * 且 Avalon-MM 数据总线就是 32 bit，软件和硬件位宽保持一致。
+ */
+
 #include "fighter_animation.h"
 #include "fighter_vga_mmio.h"
 
@@ -18,12 +31,17 @@
 #endif
 
 #ifdef __linux__
+/* bridge reset 寄存器是 HPS 系统控制寄存器，32 bit 宽；清 bit[1:0] 后
+ * HPS-to-FPGA bridge 才能访问自定义 VGA/audio IP。 */
 static const off_t k_fighter_vga_default_bridge_reset_addr = (off_t)0xFFD0501C;
+/* Qsys 中 fighter_vga_0 暴露到 lightweight bridge 后的物理地址。 */
 static const off_t k_fighter_vga_default_mmio_addr = (off_t)0xFF240000;
+/* VGA IDENT 寄存器返回 0x56504741，即 ASCII "VPGA"。 */
 static const uint32_t k_fighter_vga_ident = 0x56504741U; /* "VPGA" */
 #endif
 
 typedef struct {
+  /* 5x7 点阵字体：每行用低 5 bit 表示像素，放在 8 bit 里方便位运算。 */
   char ch;
   unsigned char rows[7];
 } fighter_glyph_t;
@@ -135,6 +153,7 @@ static const char *fighter_renderer_menu_frame_ppm_path(int frame_index) {
 #endif
 
 #ifdef __linux__
+/* 从环境变量读取物理地址；未设置时使用默认 MMIO 地址。 */
 static int fighter_renderer_parse_env_address(const char *env_name,
                                               off_t default_value,
                                               off_t *value_out) {
@@ -162,6 +181,7 @@ static int fighter_renderer_parse_env_address(const char *env_name,
   return 0;
 }
 
+/* 用 /dev/mem 把物理地址映射到用户态，并返回对齐后的寄存器指针。 */
 static int fighter_renderer_map_physical(int mem_fd,
                                          off_t physical_addr,
                                          size_t span,
@@ -201,6 +221,7 @@ static int fighter_renderer_map_physical(int mem_fd,
   return 0;
 }
 
+/* 解除一段 mmap 区域并清空记录，避免重复 unmap。 */
 static void fighter_renderer_unmap_region(void **map_base,
                                           unsigned long *map_length) {
   if (!map_base || !map_length || !*map_base || *map_length == 0) {
@@ -212,6 +233,7 @@ static void fighter_renderer_unmap_region(void **map_base,
   *map_length = 0;
 }
 
+/* 清 HPS bridge reset bit[1:0]，使 lightweight HPS-to-FPGA bridge 可访问。 */
 static int fighter_renderer_enable_fpga_bridges(fighter_renderer_t *renderer) {
   uint32_t value;
 
@@ -225,6 +247,7 @@ static int fighter_renderer_enable_fpga_bridges(fighter_renderer_t *renderer) {
   return 0;
 }
 
+/* 尝试从多个候选路径加载一张 PPM 资源图。 */
 static int fighter_renderer_load_asset_ppm(fighter_rgb_image_t *image,
                                            const char *relative_path) {
   static const char *const k_asset_roots[] = {
@@ -260,6 +283,7 @@ static int fighter_renderer_load_asset_ppm(fighter_rgb_image_t *image,
   return -1;
 }
 
+/* 加载菜单帧和背景图资源，失败时保留空图并由绘制逻辑降级处理。 */
 static void fighter_renderer_load_assets(fighter_renderer_t *renderer) {
   int i;
 
@@ -290,6 +314,7 @@ static void fighter_renderer_load_assets(fighter_renderer_t *renderer) {
   }
 }
 
+/* 关闭 VGA MMIO 后端，释放 framebuffer 缓冲和 /dev/mem 映射。 */
 static void fighter_renderer_close_mmio(fighter_renderer_t *renderer) {
   if (!renderer) {
     return;
@@ -307,6 +332,7 @@ static void fighter_renderer_close_mmio(fighter_renderer_t *renderer) {
   renderer->vga_bridge_reset_reg = NULL;
 }
 
+/* 分配 320x240 RGB888 后台缓冲，供软件绘制后再打包写入 FPGA。 */
 static int fighter_renderer_prepare_mmio_framebuffer(
     fighter_renderer_t *renderer) {
   if (!renderer) {
@@ -330,6 +356,7 @@ static int fighter_renderer_prepare_mmio_framebuffer(
   return 0;
 }
 
+/* 初始化 FPGA VGA MMIO 后端：打开 /dev/mem、使能 bridge、探测 IDENT 和几何。 */
 static int fighter_renderer_init_mmio(fighter_renderer_t *renderer) {
   off_t bridge_reset_addr;
   off_t mmio_addr;
@@ -434,6 +461,7 @@ static int fighter_renderer_init_mmio(fighter_renderer_t *renderer) {
   return 0;
 }
 
+/* 把 RGB888 后台缓冲打包成 RGB565 word 写入 VGA IP framebuffer，并请求换帧。 */
 static void fighter_renderer_flush_mmio_frame(fighter_renderer_t *renderer) {
   const unsigned char *src;
   volatile uint32_t *dst;
@@ -469,6 +497,7 @@ static void fighter_renderer_flush_mmio_frame(fighter_renderer_t *renderer) {
       FIGHTER_VGA_MMIO_CONTROL_SWAP_REQUEST;
 }
 
+/* 使用 MMIO 后端绘制完整游戏画面，再刷入 FPGA framebuffer。 */
 static void fighter_renderer_draw_mmio(
     fighter_renderer_t *renderer,
     const fighter_game_t *game,
@@ -494,6 +523,7 @@ static void fighter_renderer_draw_mmio(
 }
 #endif
 
+/* 初始化渲染器选项，给 framebuffer 路径和终端输出间隔设置默认值。 */
 void fighter_renderer_options_init(fighter_renderer_options_t *options) {
   if (!options) {
     return;
@@ -600,12 +630,14 @@ static const char *fighter_renderer_finish_reason_name(
   }
 }
 
+/* 判断终端渲染中玩家关键状态是否变化，变化时才打印以减少刷屏。 */
 static int fighter_renderer_console_player_changed(
     const fighter_player_state_t *lhs,
     const fighter_player_state_t *rhs) {
   return memcmp(lhs, rhs, sizeof(*lhs)) != 0;
 }
 
+/* 在终端输出单名玩家的位置、血量、动作和攻击状态。 */
 static void fighter_renderer_print_console_player(
     const char *label,
     const fighter_player_state_t *player) {
@@ -632,6 +664,7 @@ static unsigned char *fighter_fb_target_data(fighter_renderer_t *renderer) {
   return (unsigned char *)renderer->fb_data;
 }
 
+/* 将 RGB888 颜色转换成当前 framebuffer 位深需要的像素值。 */
 static unsigned int fighter_fb_color(fighter_renderer_t *renderer,
                                      unsigned char r,
                                      unsigned char g,
@@ -650,6 +683,7 @@ static unsigned int fighter_fb_color(fighter_renderer_t *renderer,
   return ((unsigned int)r << 16) | ((unsigned int)g << 8) | (unsigned int)b;
 }
 
+/* 把转换后的像素值写入 framebuffer/backbuffer 的指定字节地址。 */
 static void fighter_fb_store_color(fighter_renderer_t *renderer,
                                    unsigned char *dst,
                                    unsigned int color) {
@@ -670,6 +704,7 @@ static void fighter_fb_store_color(fighter_renderer_t *renderer,
   }
 }
 
+/* 在 framebuffer 坐标中写一个像素，自动裁剪越界坐标。 */
 static void fighter_fb_put_pixel(fighter_renderer_t *renderer,
                                  int x,
                                  int y,
@@ -700,6 +735,7 @@ static void fighter_fb_put_pixel(fighter_renderer_t *renderer,
   fighter_fb_store_color(renderer, dst, color);
 }
 
+/* 将游戏逻辑坐标按比例映射到实际 framebuffer 坐标。 */
 static int fighter_scale_axis(int value, int dst_extent, int src_extent) {
   if (src_extent <= 0) {
     return 0;
@@ -707,11 +743,13 @@ static int fighter_scale_axis(int value, int dst_extent, int src_extent) {
   return (int)(((long long)value * dst_extent) / src_extent);
 }
 
+/* 将游戏逻辑尺寸按比例映射到实际 framebuffer 尺寸，至少保留 1 像素。 */
 static int fighter_scale_size_axis(int value, int dst_extent, int src_extent) {
   int out = fighter_scale_axis(value, dst_extent, src_extent);
   return out > 0 ? out : 1;
 }
 
+/* 根据 framebuffer 尺寸调整点阵字体缩放倍数。 */
 static int fighter_scale_text_size(fighter_renderer_t *renderer, int base_scale) {
   int s;
 
@@ -723,6 +761,7 @@ static int fighter_scale_text_size(fighter_renderer_t *renderer, int base_scale)
   return s > 0 ? s : 1;
 }
 
+/* 在 framebuffer 上填充矩形，供背景、血条、简易角色块使用。 */
 static void fighter_fb_fill_rect(fighter_renderer_t *renderer,
                                  int x,
                                  int y,
@@ -776,6 +815,7 @@ static void fighter_fb_fill_rect(fighter_renderer_t *renderer,
   }
 }
 
+/* 用 5x7 点阵字体绘制单个字符。 */
 static void fighter_fb_draw_char(fighter_renderer_t *renderer,
                                  int x,
                                  int y,
@@ -801,6 +841,7 @@ static void fighter_fb_draw_char(fighter_renderer_t *renderer,
   }
 }
 
+/* 从左到右绘制一串点阵文字。 */
 static void fighter_fb_draw_text(fighter_renderer_t *renderer,
                                  int x,
                                  int y,
@@ -821,6 +862,7 @@ static void fighter_fb_draw_text(fighter_renderer_t *renderer,
   }
 }
 
+/* 以指定 x 中心点绘制居中文本。 */
 static void fighter_fb_draw_centered_text(fighter_renderer_t *renderer,
                                           int center_x,
                                           int y,
@@ -837,6 +879,7 @@ static void fighter_fb_draw_centered_text(fighter_renderer_t *renderer,
   fighter_fb_draw_text(renderer, center_x - text_width / 2, y, text, scale, color);
 }
 
+/* 释放 RGB888 图片缓存并清空结构体。 */
 static void fighter_rgb_image_reset(fighter_rgb_image_t *image) {
   if (!image) {
     return;
@@ -848,6 +891,7 @@ static void fighter_rgb_image_reset(fighter_rgb_image_t *image) {
   image->height = 0;
 }
 
+/* 释放已转换 framebuffer 图片缓存并清空结构体。 */
 static void fighter_fb_image_reset(fighter_fb_image_t *image) {
   if (!image) {
     return;
@@ -861,6 +905,7 @@ static void fighter_fb_image_reset(fighter_fb_image_t *image) {
   image->data_length = 0;
 }
 
+/* 从 PPM 文件读取 token，跳过空白和注释。 */
 static int fighter_ppm_read_token(FILE *stream, char *buffer, size_t buffer_size) {
   int ch;
   size_t length;
@@ -908,6 +953,7 @@ static int fighter_ppm_read_token(FILE *stream, char *buffer, size_t buffer_size
   return length == 0 ? -1 : 0;
 }
 
+/* 加载 P6/P3 PPM 图片到 RGB888 内存。 */
 static int fighter_rgb_image_load_ppm(fighter_rgb_image_t *image, const char *path) {
   FILE *stream;
   char token[32];
@@ -970,6 +1016,7 @@ static int fighter_rgb_image_load_ppm(fighter_rgb_image_t *image, const char *pa
   return 0;
 }
 
+/* 将 RGB 图片按比例缩放后绘制到目标矩形内。 */
 static void fighter_fb_draw_rgb_image_fit(fighter_renderer_t *renderer,
                                           const fighter_rgb_image_t *image) {
   int draw_width;
@@ -1013,6 +1060,7 @@ static void fighter_fb_draw_rgb_image_fit(fighter_renderer_t *renderer,
   }
 }
 
+/* 预先把 RGB 图片缩放并转换成 framebuffer 像素格式，减少每帧开销。 */
 static int fighter_fb_image_build_scaled(fighter_renderer_t *renderer,
                                          const fighter_rgb_image_t *source,
                                          fighter_fb_image_t *scaled) {
@@ -1082,6 +1130,7 @@ static int fighter_fb_image_build_scaled(fighter_renderer_t *renderer,
   return 0;
 }
 
+/* 生成 cover 模式缓存图：铺满目标区域并裁掉多余边缘。 */
 static int fighter_fb_image_build_cover(fighter_renderer_t *renderer,
                                         const fighter_rgb_image_t *source,
                                         fighter_fb_image_t *scaled) {
@@ -1160,6 +1209,7 @@ static int fighter_fb_image_build_cover(fighter_renderer_t *renderer,
   return 0;
 }
 
+/* 把已转换的 framebuffer 图片缓存拷贝到当前 backbuffer。 */
 static void fighter_fb_draw_cached_image(fighter_renderer_t *renderer,
                                          const fighter_fb_image_t *image) {
   if (!renderer || !image || !image->pixels) {
@@ -1177,6 +1227,7 @@ static void fighter_fb_draw_cached_image(fighter_renderer_t *renderer,
   }
 }
 
+/* 将软件 backbuffer 拷贝到真实 framebuffer，实现一帧显示。 */
 static void fighter_fb_present(fighter_renderer_t *renderer) {
   if (!renderer || !renderer->fb_backbuffer || !renderer->fb_data) {
     return;
@@ -1185,11 +1236,13 @@ static void fighter_fb_present(fighter_renderer_t *renderer) {
   memcpy(renderer->fb_data, renderer->fb_backbuffer, renderer->fb_backbuffer_length);
 }
 
+/* 用指定颜色清空整个 backbuffer。 */
 static void fighter_fb_clear(fighter_renderer_t *renderer, unsigned int color) {
   fighter_fb_fill_rect(renderer, 0, 0, renderer->fb_width, renderer->fb_height,
                        color);
 }
 
+/* 绘制玩家血条，包括背景、边框和剩余 HP 比例。 */
 static void fighter_fb_draw_hp_bar(fighter_renderer_t *renderer,
                                    int x,
                                    int y,
@@ -1220,6 +1273,7 @@ static void fighter_fb_draw_hp_bar(fighter_renderer_t *renderer,
   fighter_fb_fill_rect(renderer, x + 2, y + 2, fill_w, h - 4, fg);
 }
 
+/* 绘制角色 sprite，支持水平翻转和透明背景过滤。 */
 static void fighter_fb_draw_sprite(fighter_renderer_t *renderer,
                                    const fighter_sprite_t *sprite,
                                    int dst_x,
@@ -1288,6 +1342,7 @@ static void fighter_fb_draw_sprite(fighter_renderer_t *renderer,
   }
 }
 
+/* 在 framebuffer 后端绘制单名玩家，优先使用动画 sprite，失败时画色块。 */
 static void fighter_renderer_draw_player_fb(
     fighter_renderer_t *renderer,
     const fighter_game_t *game,
@@ -1374,6 +1429,7 @@ static const fighter_sprite_t *fighter_renderer_fireball_sprite(
   return &clip->frames[frame_index];
 }
 
+/* 绘制火球投射物，优先使用角色对应 projectile sprite。 */
 static void fighter_renderer_draw_projectile_fb(
     fighter_renderer_t *renderer,
     const fighter_game_t *game,
@@ -1420,6 +1476,7 @@ static void fighter_renderer_draw_projectile_fb(
   fighter_fb_draw_sprite(renderer, sprite, draw_x, draw_y, draw_w, draw_h, flip_x);
 }
 
+/* 绘制菜单界面，包括菜单背景帧和当前选中项。 */
 static void fighter_renderer_draw_menu_fb(fighter_renderer_t *renderer,
                                           const fighter_game_t *game) {
   fighter_fb_image_t *cached_image;
@@ -1501,6 +1558,7 @@ static void fighter_renderer_draw_menu_fb(fighter_renderer_t *renderer,
                                 "PRESS ANY KEY", prompt_scale, text_color);
 }
 
+/* 绘制对战界面，包括背景、玩家、投射物、HUD 和回合计时。 */
 static void fighter_renderer_draw_playfield_fb(
     fighter_renderer_t *renderer,
     const fighter_game_t *game,
@@ -1583,6 +1641,7 @@ static void fighter_renderer_draw_playfield_fb(
                                 timer_scale, ui_text_color);
 }
 
+/* 绘制 game over 结算界面，包括胜者和返回菜单提示。 */
 static void fighter_renderer_draw_game_over_fb(
     fighter_renderer_t *renderer,
     const fighter_game_t *game,
@@ -1647,6 +1706,7 @@ static void fighter_renderer_draw_game_over_fb(
 }
 #endif
 
+/* 终端渲染后端：按固定间隔或状态变化打印游戏状态。 */
 static void fighter_renderer_draw_console(fighter_renderer_t *renderer,
                                           const fighter_game_t *game) {
   int game_changed;
@@ -1724,6 +1784,7 @@ static void fighter_renderer_draw_console(fighter_renderer_t *renderer,
   }
 }
 
+/* 初始化渲染器，按 MMIO/framebuffer/console 的顺序选择可用后端。 */
 int fighter_renderer_init(fighter_renderer_t *renderer,
                           const fighter_renderer_options_t *options) {
   fighter_renderer_options_t local_options;
@@ -1869,6 +1930,7 @@ int fighter_renderer_init(fighter_renderer_t *renderer,
   return 0;
 }
 
+/* 关闭渲染器并释放所有后端资源。 */
 void fighter_renderer_close(fighter_renderer_t *renderer) {
   if (!renderer) {
     return;
@@ -1898,6 +1960,7 @@ void fighter_renderer_close(fighter_renderer_t *renderer) {
 #endif
 }
 
+/* 渲染一帧，根据当前后端分派到 MMIO、framebuffer 或 console。 */
 void fighter_renderer_draw(fighter_renderer_t *renderer,
                            const fighter_game_t *game,
                            const fighter_animation_system_t *anim_system) {
@@ -1935,6 +1998,7 @@ void fighter_renderer_draw(fighter_renderer_t *renderer,
   fighter_renderer_draw_console(renderer, game);
 }
 
+/* 返回当前渲染后端名称，用于启动日志和调试输出。 */
 const char *fighter_renderer_backend_name(const fighter_renderer_t *renderer) {
   if (!renderer) {
     return "unknown";
@@ -1951,6 +2015,7 @@ const char *fighter_renderer_backend_name(const fighter_renderer_t *renderer) {
   }
 }
 
+/* 返回实际打开的 framebuffer 设备路径；非 framebuffer 后端返回 none。 */
 const char *fighter_renderer_active_framebuffer_path(
     const fighter_renderer_t *renderer) {
   if (!renderer || renderer->framebuffer_path_used[0] == '\0') {
@@ -1959,6 +2024,7 @@ const char *fighter_renderer_active_framebuffer_path(
   return renderer->framebuffer_path_used;
 }
 
+/* 返回渲染器初始化状态详情，解释为何选择或未选择某个后端。 */
 const char *fighter_renderer_status_detail(const fighter_renderer_t *renderer) {
   if (!renderer || renderer->init_status[0] == '\0') {
     return "no renderer status";

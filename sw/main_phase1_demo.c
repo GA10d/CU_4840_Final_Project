@@ -4,6 +4,13 @@
 #include "fighter_renderer.h"
 #include "fighter_animation.h"
 
+/*
+ * Phase 1/整合 demo 主循环。
+ *
+ * 负责把输入、游戏逻辑、动画、渲染、音频串起来：每帧读取输入，推进
+ * fighter_game_t，再把当前状态交给渲染器和音频命令队列。
+ */
+
 #include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -27,11 +34,13 @@ typedef enum {
   FIGHTER_SCRIPT_KO = 1
 } fighter_script_kind_t;
 
+/* 捕获 Ctrl-C/SIGTERM，把主循环退出标志置 0。 */
 static void fighter_on_signal(int signal_number) {
   (void)signal_number;
   g_running = 0;
 }
 
+/* 返回单调时钟纳秒时间，用于稳定控制游戏帧率。 */
 static int64_t fighter_now_ns(void) {
   struct timespec now;
 
@@ -42,6 +51,7 @@ static int64_t fighter_now_ns(void) {
   return (int64_t)now.tv_sec * 1000000000LL + (int64_t)now.tv_nsec;
 }
 
+/* 按纳秒睡眠指定时长，处理负数/零时长和 nanosleep 中断。 */
 static void fighter_sleep_ns(int64_t duration_ns) {
   struct timespec delay;
 
@@ -54,6 +64,7 @@ static void fighter_sleep_ns(int64_t duration_ns) {
   nanosleep(&delay, NULL);
 }
 
+/* 生成脚本输入报告，用于没有 USB 键盘时自动演示或测试 KO 流程。 */
 static void fighter_build_script_reports(fighter_script_kind_t kind,
                                          int frame_index,
                                          usb_hid_keyboard_report_t reports[2]) {
@@ -107,12 +118,14 @@ static const char *fighter_script_name(fighter_script_kind_t kind) {
   }
 }
 
+/* 打印 demo 命令行参数说明。 */
 static void fighter_print_usage(const char *argv0) {
   printf("usage: %s [--usb] [--script smoke|ko] [--console] [--fb PATH] "
          "[--audio] [--frames N]\n",
          argv0);
 }
 
+/* 程序入口：初始化输入、游戏、动画、渲染和音频，然后进入固定帧率主循环。 */
 int main(int argc, char **argv) {
   const int64_t k_logic_tick_ns = 16666667LL;
   const int64_t k_max_accumulator_ns = 250000000LL;

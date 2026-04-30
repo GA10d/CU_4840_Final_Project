@@ -1,5 +1,9 @@
 SYSTEM = soc_system
 
+# 硬件构建脚本。
+# 负责调用 Quartus/Platform Designer 生成 Qsys 系统、编译 .sof/.rbf，
+# 并从 sopcinfo 生成 device tree。自定义 IP 的 32-bit MMIO 寄存器接口
+# 在 fighter_audio_hw.tcl 和 fighter_vga_hw.tcl 中注册。
 TCL = $(SYSTEM).tcl
 QSYS = $(SYSTEM).qsys
 SOPCINFO = $(SYSTEM).sopcinfo

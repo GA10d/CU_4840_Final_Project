@@ -1,6 +1,13 @@
 #ifndef FIGHTER_INPUT_H
 #define FIGHTER_INPUT_H
 
+/*
+ * 输入解析接口。
+ *
+ * 键盘 HID keycode 在这里映射为游戏按钮。解析器保存上一帧状态，用于区分
+ * “持续按住”和“刚按下”。
+ */
+
 #include <stdbool.h>
 
 #include "hid_keyboard_report.h"
@@ -10,6 +17,7 @@ extern "C" {
 #endif
 
 enum {
+  /* USB HID usage ID，数值来自 HID boot keyboard 表。 */
   FIGHTER_HID_KEY_A = 0x04,
   FIGHTER_HID_KEY_D = 0x07,
   FIGHTER_HID_KEY_J = 0x0d,
@@ -43,6 +51,7 @@ typedef enum {
 } fighter_attack_command_t;
 
 typedef struct {
+  /* 当前帧按钮状态，bool 字段直接表达按键是否按下。 */
   bool up;
   bool down;
   bool left;
@@ -53,11 +62,13 @@ typedef struct {
 } fighter_button_state_t;
 
 typedef struct {
+  /* 菜单解析器保存上一次按钮状态，用于生成左右移动/确认的边沿动作。 */
   fighter_button_state_t previous_buttons;
   fighter_menu_item_t selected_item;
 } fighter_menu_parser_t;
 
 typedef struct {
+  /* 玩家解析器保存上一次按钮状态，用于生成玩家动作的边沿事件。 */
   fighter_button_state_t previous_buttons;
 } fighter_player_parser_t;
 

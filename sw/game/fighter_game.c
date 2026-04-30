@@ -1,5 +1,13 @@
 #include "fighter_game.h"
 
+/*
+ * 核心格斗游戏逻辑。
+ *
+ * 这里不直接处理键盘、图片或硬件寄存器，只根据每帧输入更新玩家位置、
+ * 攻击阶段、碰撞、投射物、血量、倒计时和胜负状态。这样同一套逻辑可以
+ * 被测试、终端 demo、framebuffer 渲染和 FPGA MMIO 渲染共同复用。
+ */
+
 #include <string.h>
 
 typedef struct {
@@ -14,6 +22,7 @@ typedef struct {
   int block_stun_frames;
 } fighter_attack_profile_t;
 
+/* 把整数限制在 [min_value, max_value] 范围内，防止位置/血量越界。 */
 static int fighter_clamp_int(int value, int min_value, int max_value) {
   if (value < min_value) {
     return min_value;
@@ -24,6 +33,7 @@ static int fighter_clamp_int(int value, int min_value, int max_value) {
   return value;
 }
 
+/* 判断两个轴对齐矩形是否重叠，用于近战 hitbox 和 hurtbox 碰撞。 */
 static int fighter_rects_overlap(int lhs_x,
                                  int lhs_y,
                                  int lhs_w,
@@ -36,6 +46,7 @@ static int fighter_rects_overlap(int lhs_x,
          lhs_y < rhs_y + rhs_h && lhs_y + lhs_h > rhs_y;
 }
 
+/* 清空投射物状态，并把 owner_index 设为 -1 表示当前没有归属玩家。 */
 static void fighter_projectile_reset(fighter_projectile_state_t *projectile) {
   if (!projectile) {
     return;
@@ -45,20 +56,24 @@ static void fighter_projectile_reset(fighter_projectile_state_t *projectile) {
   projectile->owner_index = -1;
 }
 
+/* 计算玩家站在地面时的 y 坐标，也就是地板线减去角色高度。 */
 static int fighter_player_ground_y(const fighter_game_t *game) {
   return game->config.floor_y - game->config.player_height;
 }
 
+/* 返回玩家水平中心点，用于判断朝向、攻击范围和投射物出生点。 */
 static int fighter_player_center_x(const fighter_game_t *game,
                                    const fighter_player_state_t *player) {
   return player->x + game->config.player_width / 2;
 }
 
+/* 判断玩家是否在空中；y 高于地面或仍有垂直速度都算空中。 */
 static int fighter_player_is_airborne(const fighter_game_t *game,
                                       const fighter_player_state_t *player) {
   return player->y < fighter_player_ground_y(game) || player->vy != 0;
 }
 
+/* 计算两名玩家在垂直方向上的重叠高度，辅助判断近战攻击是否可能命中。 */
 static int fighter_player_vertical_overlap(const fighter_game_t *game,
                                            const fighter_player_state_t *lhs,
                                            const fighter_player_state_t *rhs) {
@@ -78,6 +93,7 @@ static int fighter_player_vertical_overlap(const fighter_game_t *game,
   return bottom - top;
 }
 
+/* 根据招式类型返回伤害、前摇、活跃帧、后摇和硬直等参数。 */
 static fighter_attack_profile_t fighter_attack_profile(
     fighter_attack_command_t attack) {
   switch (attack) {
@@ -101,6 +117,7 @@ static fighter_attack_profile_t fighter_attack_profile(
   }
 }
 
+/* 计算防御时受到的削血伤害，至少为 1，避免防御完全无成本。 */
 static int fighter_attack_chip_damage(fighter_attack_profile_t profile) {
   int damage = profile.damage / 3;
 
@@ -110,6 +127,7 @@ static int fighter_attack_chip_damage(fighter_attack_profile_t profile) {
   return damage;
 }
 
+/* 向本帧音频命令队列追加一条命令；队列满时由音频模块拒绝。 */
 static void fighter_game_push_audio(fighter_audio_command_list_t *audio_commands,
                                     fighter_audio_command_type_t type,
                                     fighter_audio_track_t track) {
@@ -120,6 +138,7 @@ static void fighter_game_push_audio(fighter_audio_command_list_t *audio_commands
   (void)fighter_audio_command_list_push(audio_commands, type, track);
 }
 
+/* 根据当前攻击阶段同步 attack_visual_frames，让渲染层能保持攻击动画。 */
 static void fighter_player_sync_attack_visual_frames(
     fighter_player_state_t *player) {
   if (!player) {
@@ -134,6 +153,7 @@ static void fighter_player_sync_attack_visual_frames(
   }
 }
 
+/* 中断玩家当前攻击，通常在被击中/格挡硬直/回合重置时使用。 */
 static void fighter_player_interrupt_attack(fighter_player_state_t *player) {
   if (!player) {
     return;
@@ -145,6 +165,7 @@ static void fighter_player_interrupt_attack(fighter_player_state_t *player) {
   fighter_player_sync_attack_visual_frames(player);
 }
 
+/* 切换玩家攻击阶段并设置该阶段持续帧数。 */
 static void fighter_player_enter_attack_phase(
     fighter_player_state_t *player,
     fighter_attack_phase_t phase,
@@ -158,6 +179,7 @@ static void fighter_player_enter_attack_phase(
   fighter_player_sync_attack_visual_frames(player);
 }
 
+/* 根据地面/空中状态修正攻击命令，例如地面不能直接使用跳攻击。 */
 static fighter_attack_command_t fighter_normalize_attack_command(
     fighter_attack_command_t command) {
   if (command == FIGHTER_ATTACK_NONE) {
@@ -166,6 +188,7 @@ static fighter_attack_command_t fighter_normalize_attack_command(
   return command;
 }
 
+/* 让玩家进入某个攻击动作的 STARTUP 阶段，并记录事件和冷却。 */
 static void fighter_player_begin_attack(fighter_player_state_t *player,
                                         fighter_attack_command_t command) {
   fighter_attack_profile_t profile;
@@ -184,6 +207,7 @@ static void fighter_player_begin_attack(fighter_player_state_t *player,
                                     profile.startup_frames);
 }
 
+/* 每帧推进攻击状态机：前摇、活跃、确认、后摇依次流转。 */
 static void fighter_player_tick_attack_phase(fighter_player_state_t *player) {
   fighter_attack_profile_t profile;
 
@@ -224,6 +248,7 @@ static void fighter_player_tick_attack_phase(fighter_player_state_t *player) {
   }
 }
 
+/* 处理玩家被命中：扣血、进入受击硬直、打断攻击并记录事件。 */
 static void fighter_player_enter_hit(fighter_player_state_t *player,
                                      int hit_stun_frames,
                                      fighter_combat_result_t result) {
@@ -238,6 +263,7 @@ static void fighter_player_enter_hit(fighter_player_state_t *player,
   player->event_flags |= FIGHTER_PLAYER_EVENT_HIT;
 }
 
+/* 处理玩家成功防御：进入 block stun 并显示防御/硬直视觉状态。 */
 static void fighter_player_enter_block_stun(fighter_player_state_t *player,
                                             int block_stun_frames) {
   if (!player) {
@@ -250,6 +276,7 @@ static void fighter_player_enter_block_stun(fighter_player_state_t *player,
   player->event_flags |= FIGHTER_PLAYER_EVENT_BLOCK;
 }
 
+/* 判断玩家当前是否允许进入防御状态，排除空中、攻击中、硬直中等情况。 */
 static int fighter_player_can_enter_guard_state(
     const fighter_game_t *game,
     const fighter_player_state_t *player,
@@ -269,6 +296,7 @@ static int fighter_player_can_enter_guard_state(
   return !fighter_player_is_airborne(game, player);
 }
 
+/* 判断是否满足下蹲防御条件：可防御且按住下和格挡。 */
 static int fighter_player_can_crouch_guard(
     const fighter_game_t *game,
     const fighter_player_state_t *player,
@@ -277,12 +305,14 @@ static int fighter_player_can_crouch_guard(
          input->crouch_held;
 }
 
+/* 判断是否满足站立防御条件：可防御且按住格挡但没有下蹲防御。 */
 static int fighter_player_can_guard(const fighter_game_t *game,
                                     const fighter_player_state_t *player,
                                     const fighter_player_result_t *input) {
   return fighter_player_can_enter_guard_state(game, player, input);
 }
 
+/* 为指定玩家生成火球投射物，位置和速度由玩家朝向决定。 */
 static void fighter_game_spawn_fireball(fighter_game_t *game, int player_index) {
   fighter_projectile_state_t *projectile;
   fighter_player_state_t *player;
@@ -313,6 +343,7 @@ static void fighter_game_spawn_fireball(fighter_game_t *game, int player_index) 
   projectile->anim_ticks = 0;
 }
 
+/* 投射物命中玩家时应用伤害、硬直、事件标志，并移除投射物。 */
 static void fighter_game_apply_projectile_hit(fighter_game_t *game,
                                               int attacker_index) {
   fighter_player_state_t *attacker;
@@ -348,6 +379,7 @@ static void fighter_game_apply_projectile_hit(fighter_game_t *game,
   }
 }
 
+/* 投射物被防御时应用削血和防御硬直，并移除投射物。 */
 static void fighter_game_apply_projectile_block(fighter_game_t *game,
                                                 int attacker_index) {
   fighter_player_state_t *attacker;
@@ -384,6 +416,7 @@ static void fighter_game_apply_projectile_block(fighter_game_t *game,
   }
 }
 
+/* 每帧推进投射物位置、动画 tick、边界消失和相互抵消/命中判定。 */
 static void fighter_game_update_projectiles(
     fighter_game_t *game,
     const fighter_player_result_t inputs[FIGHTER_PLAYER_COUNT]) {
@@ -447,6 +480,7 @@ static void fighter_game_update_projectiles(
   }
 }
 
+/* 判断玩家是否处于不能自由控制的状态，例如攻击、受击、格挡硬直或 KO。 */
 static int fighter_player_controls_locked(const fighter_player_state_t *player) {
   if (!player) {
     return 1;
@@ -457,6 +491,7 @@ static int fighter_player_controls_locked(const fighter_player_state_t *player) 
          player->attack_phase != FIGHTER_ATTACK_PHASE_NONE;
 }
 
+/* 重置一局对战的玩家、投射物、计时器和菜单外状态。 */
 static void fighter_game_reset_round(fighter_game_t *game) {
   int ground_y;
   int i;
@@ -506,6 +541,7 @@ static void fighter_game_reset_round(fighter_game_t *game) {
   game->finish_reason = FIGHTER_FINISH_REASON_NONE;
 }
 
+/* 清除只持续一帧的输出字段，如事件标志和战斗结果。 */
 static void fighter_game_clear_frame_outputs(fighter_game_t *game) {
   int i;
 
@@ -519,6 +555,7 @@ static void fighter_game_clear_frame_outputs(fighter_game_t *game) {
   }
 }
 
+/* 切回菜单状态，并根据需要发出菜单 BGM 播放命令。 */
 static void fighter_game_enter_menu(fighter_game_t *game,
                                     fighter_audio_command_list_t *audio_commands) {
   fighter_game_reset_round(game);
@@ -532,6 +569,7 @@ static void fighter_game_enter_menu(fighter_game_t *game,
   }
 }
 
+/* 从菜单进入正式对战，重置回合并切换菜单 BGM。 */
 static void fighter_game_start_round(fighter_game_t *game,
                                      fighter_audio_command_list_t *audio_commands) {
   fighter_game_reset_round(game);
@@ -546,6 +584,7 @@ static void fighter_game_start_round(fighter_game_t *game,
                           FIGHTER_AUDIO_TRACK_MENU_CONFIRM);
 }
 
+/* 进入结算画面，记录胜者/结束原因并触发 game over 音效。 */
 static void fighter_game_enter_game_over(fighter_game_t *game,
                                          fighter_winner_t winner,
                                          fighter_finish_reason_t reason,
@@ -585,6 +624,7 @@ static void fighter_game_enter_game_over(fighter_game_t *game,
                           FIGHTER_AUDIO_TRACK_GAME_OVER);
 }
 
+/* 根据两名玩家中心位置更新朝向，确保双方始终面对彼此。 */
 static void fighter_game_update_facing(fighter_game_t *game) {
   int p1_center;
   int p2_center;
@@ -601,6 +641,7 @@ static void fighter_game_update_facing(fighter_game_t *game) {
   }
 }
 
+/* 当两名玩家水平重叠时，把他们推开并夹在屏幕边界内。 */
 static void fighter_game_resolve_overlap(fighter_game_t *game) {
   fighter_player_state_t *left_player;
   fighter_player_state_t *right_player;
@@ -633,6 +674,7 @@ static void fighter_game_resolve_overlap(fighter_game_t *game) {
   right_player->x = fighter_clamp_int(right_player->x + push, 0, max_x);
 }
 
+/* 根据玩家逻辑状态和输入选择当前视觉状态，供动画系统选 clip。 */
 static fighter_visual_state_t fighter_game_choose_visual_state(
     const fighter_game_t *game,
     const fighter_player_state_t *player,
@@ -674,6 +716,7 @@ static fighter_visual_state_t fighter_game_choose_visual_state(
   return FIGHTER_VISUAL_STATE_IDLE;
 }
 
+/* 更新两名玩家的 visual_state，并维护 state_frame 计数。 */
 static void fighter_game_update_visual_state(
     const fighter_game_t *game,
     fighter_player_state_t *player,
@@ -693,6 +736,7 @@ static void fighter_game_update_visual_state(
   }
 }
 
+/* 判断攻击者当前活跃帧是否接触防守者，并区分命中、防御或挥空。 */
 static fighter_combat_result_t fighter_game_evaluate_contact(
     const fighter_game_t *game,
     int attacker_index,
@@ -741,6 +785,7 @@ static fighter_combat_result_t fighter_game_evaluate_contact(
   return FIGHTER_COMBAT_RESULT_HIT;
 }
 
+/* 双方活跃攻击同时命中时应用相打结果。 */
 static void fighter_game_apply_trade(fighter_game_t *game) {
   fighter_player_state_t *p1;
   fighter_player_state_t *p2;
@@ -782,6 +827,7 @@ static void fighter_game_apply_trade(fighter_game_t *game) {
   }
 }
 
+/* 应用近战攻击命中：扣血、击退/硬直、设置确认阶段和音频事件。 */
 static void fighter_game_apply_hit(fighter_game_t *game, int attacker_index) {
   fighter_player_state_t *attacker;
   fighter_player_state_t *target;
@@ -815,6 +861,7 @@ static void fighter_game_apply_hit(fighter_game_t *game, int attacker_index) {
   }
 }
 
+/* 应用近战攻击被防御：削血、防御硬直、设置攻击者确认阶段。 */
 static void fighter_game_apply_block(fighter_game_t *game, int attacker_index) {
   fighter_player_state_t *attacker;
   fighter_player_state_t *target;
@@ -850,6 +897,7 @@ static void fighter_game_apply_block(fighter_game_t *game, int attacker_index) {
   }
 }
 
+/* 统一处理两名玩家当帧近战攻击接触结果，包括相打、命中和防御。 */
 static void fighter_game_resolve_attacks(
     fighter_game_t *game,
     const fighter_player_result_t inputs[2]) {
@@ -888,6 +936,7 @@ static void fighter_game_resolve_attacks(
   }
 }
 
+/* 根据双方 HP 判断 KO、双 KO 或继续对战，并在结束时进入结算状态。 */
 static void fighter_game_handle_round_end_from_hp(
     fighter_game_t *game,
     fighter_audio_command_list_t *audio_commands) {
@@ -924,6 +973,7 @@ static void fighter_game_handle_round_end_from_hp(
   }
 }
 
+/* 每帧处理单个玩家输入、移动、跳跃、攻击、冷却、重力和边界限制。 */
 static void fighter_game_handle_player(fighter_game_t *game,
                                        int player_index,
                                        const fighter_player_result_t inputs[2]) {
@@ -1028,6 +1078,7 @@ static void fighter_game_handle_player(fighter_game_t *game,
   }
 }
 
+/* 菜单状态每帧逻辑：处理确认键，决定开始对战或留在菜单。 */
 static void fighter_game_tick_menu(fighter_game_t *game,
                                    const fighter_player_result_t inputs[2],
                                    fighter_audio_command_list_t *audio_commands) {
@@ -1047,6 +1098,7 @@ static void fighter_game_tick_menu(fighter_game_t *game,
   }
 }
 
+/* 对战状态每帧逻辑：推进玩家、投射物、碰撞、计时器和结束条件。 */
 static void fighter_game_tick_playing(fighter_game_t *game,
                                       const fighter_player_result_t inputs[2],
                                       fighter_audio_command_list_t *audio_commands) {
@@ -1093,6 +1145,7 @@ static void fighter_game_tick_playing(fighter_game_t *game,
   }
 }
 
+/* 结算状态每帧逻辑：等待动画门限后允许玩家确认返回菜单。 */
 static void fighter_game_tick_game_over(fighter_game_t *game,
                                         const fighter_player_result_t inputs[2],
                                         fighter_audio_command_list_t *audio_commands) {
@@ -1114,6 +1167,7 @@ static void fighter_game_tick_game_over(fighter_game_t *game,
   }
 }
 
+/* 填充默认游戏规则参数，包括屏幕尺寸、速度、伤害和动画时长。 */
 void fighter_game_config_default(fighter_game_config_t *config) {
   if (!config) {
     return;
@@ -1141,6 +1195,7 @@ void fighter_game_config_default(fighter_game_config_t *config) {
   config->hurt_visual_frames = 8;
 }
 
+/* 初始化游戏对象；若未传入配置则使用默认配置并进入菜单。 */
 void fighter_game_init(fighter_game_t *game, const fighter_game_config_t *config) {
   if (!game) {
     return;
@@ -1157,6 +1212,7 @@ void fighter_game_init(fighter_game_t *game, const fighter_game_config_t *config
   game->state = FIGHTER_GAME_STATE_MENU;
 }
 
+/* 游戏主 tick：根据当前状态分派到菜单、对战或结算逻辑。 */
 void fighter_game_tick(fighter_game_t *game,
                        const fighter_player_result_t inputs[FIGHTER_PLAYER_COUNT],
                        fighter_audio_command_list_t *audio_commands) {
@@ -1193,6 +1249,7 @@ void fighter_game_tick(fighter_game_t *game,
   }
 }
 
+/* 返回菜单动画当前帧索引，用 state_frames 按周期翻转。 */
 int fighter_game_menu_animation_frame(const fighter_game_t *game) {
   if (!game || game->config.menu_anim_period_frames <= 0) {
     return 0;
@@ -1203,6 +1260,7 @@ int fighter_game_menu_animation_frame(const fighter_game_t *game) {
                1U);
 }
 
+/* 判断 game over 动画是否已经播放到允许接受确认输入的阶段。 */
 int fighter_game_game_over_ready(const fighter_game_t *game) {
   if (!game || game->state != FIGHTER_GAME_STATE_GAME_OVER) {
     return 0;
@@ -1211,6 +1269,7 @@ int fighter_game_game_over_ready(const fighter_game_t *game) {
   return game->state_frames >= (uint32_t)game->config.game_over_anim_frames;
 }
 
+/* 把剩余帧数换算成秒数，向上取整用于 HUD 显示。 */
 int fighter_game_round_seconds_remaining(const fighter_game_t *game) {
   if (!game) {
     return 0;
