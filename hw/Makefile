@@ -43,8 +43,6 @@ TARFILES = Makefile \
 	$(SYSTEM)_top.sv \
 	$(BOARD_INFO) \
 	$(SRF) \
-	fighter_audio.sv \
-	fighter_audio_hw.tcl \
 	fighter_vga_renderer.sv \
 	fighter_vga_hw.tcl
 

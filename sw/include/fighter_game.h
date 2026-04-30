@@ -3,7 +3,6 @@
 
 #include <stdint.h>
 
-#include "fighter_audio.h"
 #include "fighter_input.h"
 
 #ifdef __cplusplus
@@ -149,7 +148,6 @@ typedef struct {
   uint32_t round_timer_frames;
   fighter_winner_t winner;
   fighter_finish_reason_t finish_reason;
-  int menu_bgm_active;
   fighter_player_state_t players[FIGHTER_PLAYER_COUNT];
   fighter_projectile_state_t projectiles[FIGHTER_PLAYER_COUNT];
 } fighter_game_t;
@@ -157,8 +155,7 @@ typedef struct {
 void fighter_game_config_default(fighter_game_config_t *config);
 void fighter_game_init(fighter_game_t *game, const fighter_game_config_t *config);
 void fighter_game_tick(fighter_game_t *game,
-                       const fighter_player_result_t inputs[FIGHTER_PLAYER_COUNT],
-                       fighter_audio_command_list_t *audio_commands);
+                       const fighter_player_result_t inputs[FIGHTER_PLAYER_COUNT]);
 
 int fighter_game_menu_animation_frame(const fighter_game_t *game);
 int fighter_game_game_over_ready(const fighter_game_t *game);

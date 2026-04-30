@@ -38,14 +38,6 @@ module soc_system_top(
  input         ADC_DOUT,
  output        ADC_SCLK,
 
- ///////// AUD /////////
- input         AUD_ADCDAT,
- inout         AUD_ADCLRCK,
- inout         AUD_BCLK,
- output        AUD_DACDAT,
- inout         AUD_DACLRCK,
- output        AUD_XCK,
-
  ///////// CLOCK2 /////////
  input         CLOCK2_50,
 
@@ -188,8 +180,6 @@ module soc_system_top(
  output        VGA_VS
 );
 
-   wire audio_init_done;
-   wire audio_init_error;
    soc_system soc_system0(
      .clk_clk                      ( CLOCK_50 ),
      .reset_reset_n                ( 1'b1 ),
@@ -268,17 +258,6 @@ module soc_system_top(
      .hps_hps_io_gpio_inst_GPIO54  ( HPS_KEY ),
      .hps_hps_io_gpio_inst_GPIO61  ( HPS_GSENSOR_INT ),
 
-     .fighter_audio_0_fighter_audio_audio_xck        ( AUD_XCK ),
-     .fighter_audio_0_fighter_audio_audio_bclk       ( AUD_BCLK ),
-     .fighter_audio_0_fighter_audio_audio_adclrck    ( AUD_ADCLRCK ),
-     .fighter_audio_0_fighter_audio_aud_daclrck      ( AUD_DACLRCK ),
-     .fighter_audio_0_fighter_audio_audio_dacdat     ( AUD_DACDAT ),
-     .fighter_audio_0_fighter_audio_audio_adcdat     ( AUD_ADCDAT ),
-     .fighter_audio_0_fighter_audio_audio_i2c_sclk   ( FPGA_I2C_SCLK ),
-     .fighter_audio_0_fighter_audio_audio_i2c_sdat   ( FPGA_I2C_SDAT ),
-     .fighter_audio_0_fighter_audio_audio_init_done  ( audio_init_done ),
-     .fighter_audio_0_fighter_audio_audio_init_error ( audio_init_error ),
-
      .fighter_vga_0_vga_vga_r       ( VGA_R ),
      .fighter_vga_0_vga_vga_g       ( VGA_G ),
      .fighter_vga_0_vga_vga_b       ( VGA_B ),
@@ -303,6 +282,8 @@ module soc_system_top(
            DRAM_LDQM, DRAM_RAS_N, DRAM_UDQM, DRAM_WE_N} = {8{SW[0]}};
 
    assign FAN_CTRL = SW[0];
+   assign FPGA_I2C_SCLK = SW[0];
+   assign FPGA_I2C_SDAT = SW[1] ? SW[0] : 1'bZ;
 
    assign GPIO_0 = SW[1] ? {36{SW[0]}} : {36{1'bZ}};
    assign GPIO_1 = SW[1] ? {36{SW[0]}} : {36{1'bZ}};
@@ -316,7 +297,7 @@ module soc_system_top(
 
    assign IRDA_TXD = SW[0];
 
-   assign LEDR = {8'b0, audio_init_error, audio_init_done};
+   assign LEDR = SW;
 
    assign PS2_CLK  = SW[1] ? SW[0] : 1'bZ;
    assign PS2_CLK2 = SW[1] ? SW[0] : 1'bZ;

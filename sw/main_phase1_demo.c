@@ -1,4 +1,3 @@
-#include "fighter_audio.h"
 #include "fighter_game.h"
 #include "fighter_input.h"
 #include "fighter_renderer.h"
@@ -109,7 +108,7 @@ static const char *fighter_script_name(fighter_script_kind_t kind) {
 
 static void fighter_print_usage(const char *argv0) {
   printf("usage: %s [--usb] [--script smoke|ko] [--console] [--fb PATH] "
-         "[--audio] [--frames N]\n",
+         "[--frames N]\n",
          argv0);
 }
 
@@ -119,11 +118,8 @@ int main(int argc, char **argv) {
   fighter_game_t game;
   fighter_renderer_t renderer;
   fighter_renderer_options_t renderer_options;
-  fighter_audio_context_t audio_context;
-  fighter_audio_options_t audio_options;
   fighter_animation_system_t anim_system;
   fighter_player_parser_t parsers[FIGHTER_PLAYER_COUNT];
-  fighter_audio_command_list_t audio_commands;
   fighter_input_mode_t input_mode;
   fighter_script_kind_t script_kind;
   int max_frames;
@@ -144,7 +140,6 @@ int main(int argc, char **argv) {
   realtime = 0;
 
   fighter_renderer_options_init(&renderer_options);
-  fighter_audio_options_init(&audio_options);
 
   for (i = 1; i < argc; ++i) {
     if (strcmp(argv[i], "--usb") == 0) {
@@ -169,8 +164,6 @@ int main(int argc, char **argv) {
     } else if (strcmp(argv[i], "--fb") == 0 && i + 1 < argc) {
       renderer_options.framebuffer_path = argv[++i];
       renderer_options.prefer_framebuffer = 1;
-    } else if (strcmp(argv[i], "--audio") == 0) {
-      audio_options.enable_command_audio = 1;
     } else if (strcmp(argv[i], "--frames") == 0 && i + 1 < argc) {
       ++i;
       max_frames = atoi(argv[i]);
@@ -191,12 +184,10 @@ int main(int argc, char **argv) {
 
   fighter_game_init(&game, NULL);
   (void)fighter_renderer_init(&renderer, &renderer_options);
-  (void)fighter_audio_init(&audio_context, &audio_options);
 
   if (fighter_animation_system_init(&anim_system) != 0) {
     fprintf(stderr, "failed to initialize animation system\n");
     fighter_renderer_close(&renderer);
-    fighter_audio_close(&audio_context);
     return 1;
   }
 
@@ -222,7 +213,6 @@ int main(int argc, char **argv) {
             "install libusb on the target board\n");
     fighter_animation_system_close(&anim_system);
     fighter_renderer_close(&renderer);
-    fighter_audio_close(&audio_context);
     return 1;
   }
 #endif
@@ -241,7 +231,6 @@ int main(int argc, char **argv) {
     fprintf(stderr, "         detail: %s\n",
             fighter_renderer_status_detail(&renderer));
   }
-  printf("  audio     : %s\n", fighter_audio_backend_name(&audio_context));
 
   use_fixed_timestep =
       realtime || strcmp(fighter_renderer_backend_name(&renderer), "mmio") == 0 ||
@@ -324,9 +313,8 @@ int main(int argc, char **argv) {
         }
       }
 
-      fighter_game_tick(&game, step_inputs, &audio_commands);
+      fighter_game_tick(&game, step_inputs);
       fighter_animation_system_update(&anim_system, &game);
-      fighter_audio_process_commands(&audio_context, &audio_commands);
 
       if (use_fixed_timestep) {
         accumulator_ns -= k_logic_tick_ns;
@@ -348,7 +336,6 @@ int main(int argc, char **argv) {
 #endif
 
   fighter_animation_system_close(&anim_system);
-  fighter_audio_close(&audio_context);
   fighter_renderer_close(&renderer);
   return 0;
 }

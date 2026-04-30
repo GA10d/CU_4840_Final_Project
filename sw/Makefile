@@ -15,7 +15,6 @@ CFLAGS += -pthread
 LDFLAGS += -pthread
 
 COMMON_SRCS := \
-	audio/fighter_audio.c \
 	game/fighter_game.c \
 	input/fighter_input.c \
 	input/hid_keyboard_report.c \
@@ -31,14 +30,6 @@ PHASE1_OBJS := $(PHASE1_SRCS:.c=.o)
 TEST_TARGET := phase1_test
 TEST_SRCS := tests/test_phase1.c $(COMMON_SRCS)
 TEST_OBJS := $(TEST_SRCS:.c=.o)
-
-AUDIO_DEMO_TARGET := audio_demo
-AUDIO_DEMO_SRCS := main_audio_demo.c audio/fighter_audio.c
-AUDIO_DEMO_OBJS := $(AUDIO_DEMO_SRCS:.c=.o)
-
-AUDIO_PROBE_TARGET := audio_probe
-AUDIO_PROBE_SRCS := main_audio_probe.c
-AUDIO_PROBE_OBJS := $(AUDIO_PROBE_SRCS:.c=.o)
 
 VGA_PROBE_TARGET := vga_probe
 VGA_PROBE_SRCS := main_vga_probe.c
@@ -69,13 +60,11 @@ endif
 .PHONY: all clean rebuild FORCE
 
 DEPFILES := $(sort $(PHASE1_OBJS:.o=.d) $(TEST_OBJS:.o=.d) \
-	$(AUDIO_DEMO_OBJS:.o=.d) $(AUDIO_PROBE_OBJS:.o=.d) \
 	$(VGA_PROBE_OBJS:.o=.d) \
 	$(PHASE1_USB_OBJS:.o=.d) \
 	$(INPUT_DEMO_OBJS:.o=.d))
 
-all: $(PHASE1_TARGET) $(TEST_TARGET) $(AUDIO_DEMO_TARGET) \
-	$(AUDIO_PROBE_TARGET) $(VGA_PROBE_TARGET) $(USB_TARGETS)
+all: $(PHASE1_TARGET) $(TEST_TARGET) $(VGA_PROBE_TARGET) $(USB_TARGETS)
 
 FORCE:
 
@@ -110,14 +99,6 @@ $(TEST_TARGET): $(TEST_OBJS) $(BUILD_SIGNATURE_FILE)
 	$(CC) $(CFLAGS) $(CPPFLAGS) $(LDFLAGS) -o $@ \
 		$(filter %.o,$^) $(LDLIBS)
 
-$(AUDIO_DEMO_TARGET): $(AUDIO_DEMO_OBJS) $(BUILD_SIGNATURE_FILE)
-	$(CC) $(CFLAGS) $(CPPFLAGS) $(LDFLAGS) -o $@ \
-		$(filter %.o,$^) $(LDLIBS)
-
-$(AUDIO_PROBE_TARGET): $(AUDIO_PROBE_OBJS) $(BUILD_SIGNATURE_FILE)
-	$(CC) $(CFLAGS) $(CPPFLAGS) $(LDFLAGS) -o $@ \
-		$(filter %.o,$^) $(LDLIBS)
-
 $(VGA_PROBE_TARGET): $(VGA_PROBE_OBJS) $(BUILD_SIGNATURE_FILE)
 	$(CC) $(CFLAGS) $(CPPFLAGS) $(LDFLAGS) -o $@ \
 		$(filter %.o,$^) $(LDLIBS)
@@ -135,11 +116,9 @@ endif
 -include $(DEPFILES)
 
 clean:
-	$(RM) $(PHASE1_TARGET) $(TEST_TARGET) $(AUDIO_DEMO_TARGET) \
-		$(AUDIO_PROBE_TARGET) $(VGA_PROBE_TARGET) \
+	$(RM) $(PHASE1_TARGET) $(TEST_TARGET) $(VGA_PROBE_TARGET) \
 		$(INPUT_DEMO_TARGET) $(PHASE1_OBJS) \
-		$(TEST_OBJS) $(AUDIO_DEMO_OBJS) $(AUDIO_PROBE_OBJS) \
-		$(VGA_PROBE_OBJS) \
+		$(TEST_OBJS) $(VGA_PROBE_OBJS) \
 		$(PHASE1_USB_OBJS) $(INPUT_DEMO_OBJS) \
 		$(DEPFILES) $(BUILD_SIGNATURE_FILE)
 

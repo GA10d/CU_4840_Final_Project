@@ -4,8 +4,6 @@ sw/*.d
 sw/*.o
 sw/*/*.d
 sw/*/*.o
-sw/audio_demo
-sw/audio_probe
 sw/input_demo
 sw/phase1_demo
 sw/phase1_test

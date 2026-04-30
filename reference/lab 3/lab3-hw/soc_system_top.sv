@@ -38,14 +38,6 @@ module soc_system_top(
  input 	       ADC_DOUT,
  output        ADC_SCLK,
 
- ///////// AUD /////////
- input 	       AUD_ADCDAT,
- inout 	       AUD_ADCLRCK,
- inout 	       AUD_BCLK,
- output        AUD_DACDAT,
- inout 	       AUD_DACLRCK,
- output        AUD_XCK,
-
  ///////// CLOCK2 /////////
  input 	       CLOCK2_50,
 
@@ -276,12 +268,6 @@ module soc_system_top(
    assign ADC_DIN = SW[0];
    assign ADC_SCLK = SW[0];
    
-   assign AUD_ADCLRCK = SW[1] ? SW[0] : 1'bZ;
-   assign AUD_BCLK = SW[1] ? SW[0] : 1'bZ;
-   assign AUD_DACDAT = SW[0];
-   assign AUD_DACLRCK = SW[1] ? SW[0] : 1'bZ;
-   assign AUD_XCK = SW[0];      
-
    assign DRAM_ADDR = { 13{ SW[0] } };
    assign DRAM_BA = { 2{ SW[0] } };
    assign DRAM_DQ = SW[1] ? { 16{ SW[0] } } : { 16{ 1'bZ } };

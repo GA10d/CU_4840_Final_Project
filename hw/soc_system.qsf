@@ -56,18 +56,6 @@ set_location_assignment PIN_AK3 -to ADC_DOUT
 set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to ADC_DOUT
 set_location_assignment PIN_AK2 -to ADC_SCLK
 set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to ADC_SCLK
-set_location_assignment PIN_K7 -to AUD_ADCDAT
-set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to AUD_ADCDAT
-set_location_assignment PIN_K8 -to AUD_ADCLRCK
-set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to AUD_ADCLRCK
-set_location_assignment PIN_H7 -to AUD_BCLK
-set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to AUD_BCLK
-set_location_assignment PIN_J7 -to AUD_DACDAT
-set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to AUD_DACDAT
-set_location_assignment PIN_H8 -to AUD_DACLRCK
-set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to AUD_DACLRCK
-set_location_assignment PIN_G7 -to AUD_XCK
-set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to AUD_XCK
 set_location_assignment PIN_AA16 -to CLOCK2_50
 set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to CLOCK2_50
 set_location_assignment PIN_Y26 -to CLOCK3_50

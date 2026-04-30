@@ -45,64 +45,51 @@ static void clear_inputs(fighter_player_result_t inputs[2]) {
   memset(inputs, 0, sizeof(fighter_player_result_t) * 2);
 }
 
-static void start_round(fighter_game_t *game,
-                        fighter_audio_command_list_t *commands,
-                        fighter_player_result_t inputs[2]) {
+static void start_round(fighter_game_t *game, fighter_player_result_t inputs[2]) {
   clear_inputs(inputs);
   inputs[0].any_input_pressed = 1;
-  fighter_game_tick(game, inputs, commands);
+  fighter_game_tick(game, inputs);
 }
 
 static void test_menu_transition(void) {
   fighter_game_t game;
-  fighter_audio_command_list_t commands;
   fighter_player_result_t inputs[2];
 
   fighter_game_init(&game, NULL);
   clear_inputs(inputs);
 
-  fighter_game_tick(&game, inputs, &commands);
+  fighter_game_tick(&game, inputs);
   EXPECT_EQ_INT(game.state, FIGHTER_GAME_STATE_MENU);
-  EXPECT_EQ_INT((int)commands.count, 1);
-  EXPECT_EQ_INT(commands.commands[0].type, FIGHTER_AUDIO_COMMAND_START_LOOP);
-  EXPECT_EQ_INT(commands.commands[0].track, FIGHTER_AUDIO_TRACK_MENU_BGM);
 
   clear_inputs(inputs);
   inputs[0].any_input_pressed = 1;
-  fighter_game_tick(&game, inputs, &commands);
+  fighter_game_tick(&game, inputs);
   EXPECT_EQ_INT(game.state, FIGHTER_GAME_STATE_PLAYING);
-  EXPECT_EQ_INT((int)commands.count, 2);
-  EXPECT_EQ_INT(commands.commands[0].type, FIGHTER_AUDIO_COMMAND_STOP_LOOP);
-  EXPECT_EQ_INT(commands.commands[1].type, FIGHTER_AUDIO_COMMAND_PLAY_ONCE);
 }
 
 static void test_exit_back_to_menu(void) {
   fighter_game_t game;
-  fighter_audio_command_list_t commands;
   fighter_player_result_t inputs[2];
 
   fighter_game_init(&game, NULL);
-  start_round(&game, &commands, inputs);
+  start_round(&game, inputs);
 
   clear_inputs(inputs);
   inputs[1].exit_requested = 1;
-  fighter_game_tick(&game, inputs, &commands);
+  fighter_game_tick(&game, inputs);
   EXPECT_EQ_INT(game.state, FIGHTER_GAME_STATE_MENU);
   EXPECT_EQ_INT(game.finish_reason, FIGHTER_FINISH_REASON_EXIT);
-  EXPECT_EQ_INT((int)commands.count, 1);
-  EXPECT_EQ_INT(commands.commands[0].type, FIGHTER_AUDIO_COMMAND_START_LOOP);
 }
 
 static void test_knockout_transition(void) {
   fighter_game_t game;
-  fighter_audio_command_list_t commands;
   fighter_player_result_t inputs[2];
   fighter_game_config_t config;
   int i;
 
   config = short_config();
   fighter_game_init(&game, &config);
-  start_round(&game, &commands, inputs);
+  start_round(&game, inputs);
 
   game.players[0].x = 260;
   game.players[1].x = 300;
@@ -111,10 +98,10 @@ static void test_knockout_transition(void) {
   clear_inputs(inputs);
   inputs[0].attack_pressed = 1;
   inputs[0].attack_command = FIGHTER_ATTACK_FIREBALL;
-  fighter_game_tick(&game, inputs, &commands);
+  fighter_game_tick(&game, inputs);
   clear_inputs(inputs);
   for (i = 0; i < 20; ++i) {
-    fighter_game_tick(&game, inputs, &commands);
+    fighter_game_tick(&game, inputs);
     if (game.state == FIGHTER_GAME_STATE_GAME_OVER) {
       break;
     }
@@ -123,13 +110,10 @@ static void test_knockout_transition(void) {
   EXPECT_EQ_INT(game.state, FIGHTER_GAME_STATE_GAME_OVER);
   EXPECT_EQ_INT(game.winner, FIGHTER_WINNER_PLAYER1);
   EXPECT_EQ_INT(game.finish_reason, FIGHTER_FINISH_REASON_KO);
-  EXPECT_EQ_INT((int)commands.count, 1);
-  EXPECT_EQ_INT(commands.commands[0].track, FIGHTER_AUDIO_TRACK_GAME_OVER);
 }
 
 static void test_game_over_restart_gate(void) {
   fighter_game_t game;
-  fighter_audio_command_list_t commands;
   fighter_player_result_t inputs[2];
   fighter_game_config_t config;
 
@@ -138,25 +122,21 @@ static void test_game_over_restart_gate(void) {
   game.state = FIGHTER_GAME_STATE_GAME_OVER;
   game.state_frames = 1;
   game.winner = FIGHTER_WINNER_PLAYER2;
-  game.menu_bgm_active = 0;
 
   clear_inputs(inputs);
   inputs[0].attack_pressed = 1;
-  fighter_game_tick(&game, inputs, &commands);
+  fighter_game_tick(&game, inputs);
   EXPECT_EQ_INT(game.state, FIGHTER_GAME_STATE_GAME_OVER);
 
   game.state_frames = (unsigned int)config.game_over_anim_frames;
   clear_inputs(inputs);
   inputs[1].guard_pressed = 1;
-  fighter_game_tick(&game, inputs, &commands);
+  fighter_game_tick(&game, inputs);
   EXPECT_EQ_INT(game.state, FIGHTER_GAME_STATE_PLAYING);
-  EXPECT_EQ_INT((int)commands.count, 1);
-  EXPECT_EQ_INT(commands.commands[0].type, FIGHTER_AUDIO_COMMAND_PLAY_ONCE);
 }
 
 static void test_timeout_and_mmio(void) {
   fighter_game_t game;
-  fighter_audio_command_list_t commands;
   fighter_player_result_t inputs[2];
   fighter_game_config_t config;
   unsigned int regs[FIGHTER_MMIO_REG_COUNT];
@@ -166,12 +146,12 @@ static void test_timeout_and_mmio(void) {
   config.game_over_anim_frames = 2;
   fighter_game_init(&game, &config);
 
-  start_round(&game, &commands, inputs);
+  start_round(&game, inputs);
 
   game.players[0].hp = 40;
   game.players[1].hp = 40;
   clear_inputs(inputs);
-  fighter_game_tick(&game, inputs, &commands);
+  fighter_game_tick(&game, inputs);
 
   EXPECT_EQ_INT(game.state, FIGHTER_GAME_STATE_GAME_OVER);
   EXPECT_EQ_INT(game.winner, FIGHTER_WINNER_DRAW);
@@ -187,12 +167,11 @@ static void test_timeout_and_mmio(void) {
 
 static void test_hit_confirm_state_machine(void) {
   fighter_game_t game;
-  fighter_audio_command_list_t commands;
   fighter_player_result_t inputs[2];
   int i;
 
   fighter_game_init(&game, NULL);
-  start_round(&game, &commands, inputs);
+  start_round(&game, inputs);
 
   game.players[0].x = 260;
   game.players[1].x = 300;
@@ -200,11 +179,11 @@ static void test_hit_confirm_state_machine(void) {
   clear_inputs(inputs);
   inputs[0].attack_pressed = 1;
   inputs[0].attack_command = FIGHTER_ATTACK_NORMAL;
-  fighter_game_tick(&game, inputs, &commands);
+  fighter_game_tick(&game, inputs);
 
   clear_inputs(inputs);
   for (i = 0; i < 8; ++i) {
-    fighter_game_tick(&game, inputs, &commands);
+    fighter_game_tick(&game, inputs);
     if (game.players[0].attack_phase == FIGHTER_ATTACK_PHASE_HIT_CONFIRM) {
       break;
     }
@@ -221,13 +200,12 @@ static void test_hit_confirm_state_machine(void) {
 
 static void test_block_stun_and_mmio_fields(void) {
   fighter_game_t game;
-  fighter_audio_command_list_t commands;
   fighter_player_result_t inputs[2];
   unsigned int regs[FIGHTER_MMIO_REG_COUNT];
   int i;
 
   fighter_game_init(&game, NULL);
-  start_round(&game, &commands, inputs);
+  start_round(&game, inputs);
 
   game.players[0].x = 260;
   game.players[1].x = 300;
@@ -236,12 +214,12 @@ static void test_block_stun_and_mmio_fields(void) {
   inputs[0].attack_pressed = 1;
   inputs[0].attack_command = FIGHTER_ATTACK_NORMAL;
   inputs[1].guard_held = 1;
-  fighter_game_tick(&game, inputs, &commands);
+  fighter_game_tick(&game, inputs);
 
   for (i = 0; i < 8; ++i) {
     clear_inputs(inputs);
     inputs[1].guard_held = 1;
-    fighter_game_tick(&game, inputs, &commands);
+    fighter_game_tick(&game, inputs);
     if (game.players[1].block_stun_frames > 0) {
       break;
     }
@@ -274,16 +252,15 @@ static void test_block_stun_and_mmio_fields(void) {
 
 static void test_crouch_guard_state(void) {
   fighter_game_t game;
-  fighter_audio_command_list_t commands;
   fighter_player_result_t inputs[2];
 
   fighter_game_init(&game, NULL);
-  start_round(&game, &commands, inputs);
+  start_round(&game, inputs);
 
   clear_inputs(inputs);
   inputs[0].crouch_held = 1;
   inputs[0].guard_held = 1;
-  fighter_game_tick(&game, inputs, &commands);
+  fighter_game_tick(&game, inputs);
 
   EXPECT_EQ_INT(game.players[0].visual_state,
                 FIGHTER_VISUAL_STATE_CROUCH_GUARD);
@@ -291,18 +268,17 @@ static void test_crouch_guard_state(void) {
 
 static void test_grounded_jump_attack_requires_airborne(void) {
   fighter_game_t game;
-  fighter_audio_command_list_t commands;
   fighter_player_result_t inputs[2];
 
   fighter_game_init(&game, NULL);
-  start_round(&game, &commands, inputs);
+  start_round(&game, inputs);
 
   clear_inputs(inputs);
   inputs[0].jump_pressed = 1;
   inputs[0].jump_held = 1;
   inputs[0].attack_pressed = 1;
   inputs[0].attack_command = FIGHTER_ATTACK_JUMP_ATTACK;
-  fighter_game_tick(&game, inputs, &commands);
+  fighter_game_tick(&game, inputs);
 
   EXPECT_TRUE(game.players[0].vy < 0);
   EXPECT_EQ_INT(game.players[0].attack_phase, FIGHTER_ATTACK_PHASE_NONE);
@@ -310,37 +286,35 @@ static void test_grounded_jump_attack_requires_airborne(void) {
 
 static void test_directional_jump_moves_horizontally(void) {
   fighter_game_t game;
-  fighter_audio_command_list_t commands;
   fighter_player_result_t inputs[2];
   int start_x;
 
   fighter_game_init(&game, NULL);
-  start_round(&game, &commands, inputs);
+  start_round(&game, inputs);
 
   start_x = game.players[0].x;
   clear_inputs(inputs);
   inputs[0].jump_pressed = 1;
   inputs[0].jump_held = 1;
   inputs[0].move_right = 1;
-  fighter_game_tick(&game, inputs, &commands);
+  fighter_game_tick(&game, inputs);
 
   EXPECT_TRUE(game.players[0].vy < 0);
   EXPECT_TRUE(game.players[0].vx > 0);
 
   clear_inputs(inputs);
-  fighter_game_tick(&game, inputs, &commands);
+  fighter_game_tick(&game, inputs);
   EXPECT_TRUE(game.players[0].x > start_x);
   EXPECT_TRUE(game.players[0].y < ground_y(&game));
 }
 
 static void test_airborne_movement_and_attack_restrictions(void) {
   fighter_game_t game;
-  fighter_audio_command_list_t commands;
   fighter_player_result_t inputs[2];
   int initial_x;
 
   fighter_game_init(&game, NULL);
-  start_round(&game, &commands, inputs);
+  start_round(&game, inputs);
 
   game.players[0].x = 220;
   game.players[0].y = ground_y(&game) - 28;
@@ -352,7 +326,7 @@ static void test_airborne_movement_and_attack_restrictions(void) {
   inputs[0].move_right = 1;
   inputs[0].attack_pressed = 1;
   inputs[0].attack_command = FIGHTER_ATTACK_DRAGON_PUNCH;
-  fighter_game_tick(&game, inputs, &commands);
+  fighter_game_tick(&game, inputs);
 
   EXPECT_EQ_INT(game.players[0].x, initial_x);
   EXPECT_EQ_INT(game.players[0].attack_phase, FIGHTER_ATTACK_PHASE_NONE);
@@ -362,18 +336,17 @@ static void test_airborne_movement_and_attack_restrictions(void) {
   inputs[0].jump_held = 1;
   inputs[0].attack_pressed = 1;
   inputs[0].attack_command = FIGHTER_ATTACK_JUMP_ATTACK;
-  fighter_game_tick(&game, inputs, &commands);
+  fighter_game_tick(&game, inputs);
 
   EXPECT_EQ_INT(game.players[0].attack_phase, FIGHTER_ATTACK_PHASE_STARTUP);
 }
 
 static void test_grounded_overlap_still_resolves(void) {
   fighter_game_t game;
-  fighter_audio_command_list_t commands;
   fighter_player_result_t inputs[2];
 
   fighter_game_init(&game, NULL);
-  start_round(&game, &commands, inputs);
+  start_round(&game, inputs);
 
   game.players[0].x = 280;
   game.players[1].x = 300;
@@ -381,7 +354,7 @@ static void test_grounded_overlap_still_resolves(void) {
   game.players[1].y = ground_y(&game);
 
   clear_inputs(inputs);
-  fighter_game_tick(&game, inputs, &commands);
+  fighter_game_tick(&game, inputs);
 
   EXPECT_TRUE(game.players[0].x + game.config.player_width <= game.players[1].x);
   EXPECT_EQ_INT(game.players[0].facing, 1);
@@ -390,23 +363,22 @@ static void test_grounded_overlap_still_resolves(void) {
 
 static void test_dragon_punch_lifts_player(void) {
   fighter_game_t game;
-  fighter_audio_command_list_t commands;
   fighter_player_result_t inputs[2];
   int initial_y;
   int i;
 
   fighter_game_init(&game, NULL);
-  start_round(&game, &commands, inputs);
+  start_round(&game, inputs);
   initial_y = game.players[0].y;
 
   clear_inputs(inputs);
   inputs[0].attack_pressed = 1;
   inputs[0].attack_command = FIGHTER_ATTACK_DRAGON_PUNCH;
-  fighter_game_tick(&game, inputs, &commands);
+  fighter_game_tick(&game, inputs);
 
   clear_inputs(inputs);
   for (i = 0; i < 8; ++i) {
-    fighter_game_tick(&game, inputs, &commands);
+    fighter_game_tick(&game, inputs);
     if (game.players[0].y < initial_y) {
       break;
     }
@@ -417,22 +389,21 @@ static void test_dragon_punch_lifts_player(void) {
 
 static void test_attack_locks_out_movement(void) {
   fighter_game_t game;
-  fighter_audio_command_list_t commands;
   fighter_player_result_t inputs[2];
   int attack_x;
 
   fighter_game_init(&game, NULL);
-  start_round(&game, &commands, inputs);
+  start_round(&game, inputs);
 
   clear_inputs(inputs);
   inputs[0].attack_pressed = 1;
   inputs[0].attack_command = FIGHTER_ATTACK_NORMAL;
-  fighter_game_tick(&game, inputs, &commands);
+  fighter_game_tick(&game, inputs);
   attack_x = game.players[0].x;
 
   clear_inputs(inputs);
   inputs[0].move_right = 1;
-  fighter_game_tick(&game, inputs, &commands);
+  fighter_game_tick(&game, inputs);
 
   EXPECT_EQ_INT(game.players[0].attack_phase, FIGHTER_ATTACK_PHASE_STARTUP);
   EXPECT_EQ_INT(game.players[0].x, attack_x);
@@ -440,23 +411,22 @@ static void test_attack_locks_out_movement(void) {
 
 static void test_fireball_animation_not_cut_short(void) {
   fighter_game_t game;
-  fighter_audio_command_list_t commands;
   fighter_player_result_t inputs[2];
   int i;
 
   fighter_game_init(&game, NULL);
-  start_round(&game, &commands, inputs);
+  start_round(&game, inputs);
   game.players[1].x = 520;
 
   clear_inputs(inputs);
   inputs[0].attack_pressed = 1;
   inputs[0].attack_command = FIGHTER_ATTACK_FIREBALL;
-  fighter_game_tick(&game, inputs, &commands);
+  fighter_game_tick(&game, inputs);
 
   for (i = 0; i < 20; ++i) {
     clear_inputs(inputs);
     inputs[0].move_right = 1;
-    fighter_game_tick(&game, inputs, &commands);
+    fighter_game_tick(&game, inputs);
   }
 
   EXPECT_TRUE(game.players[0].attack_phase != FIGHTER_ATTACK_PHASE_NONE);
@@ -465,25 +435,24 @@ static void test_fireball_animation_not_cut_short(void) {
 
 static void test_fireball_projectile_hits_and_disappears(void) {
   fighter_game_t game;
-  fighter_audio_command_list_t commands;
   fighter_player_result_t inputs[2];
   int saw_projectile;
   int i;
 
   fighter_game_init(&game, NULL);
-  start_round(&game, &commands, inputs);
+  start_round(&game, inputs);
   game.players[0].x = 120;
   game.players[1].x = 360;
 
   clear_inputs(inputs);
   inputs[0].attack_pressed = 1;
   inputs[0].attack_command = FIGHTER_ATTACK_FIREBALL;
-  fighter_game_tick(&game, inputs, &commands);
+  fighter_game_tick(&game, inputs);
 
   saw_projectile = 0;
   for (i = 0; i < 60; ++i) {
     clear_inputs(inputs);
-    fighter_game_tick(&game, inputs, &commands);
+    fighter_game_tick(&game, inputs);
     if (game.projectiles[0].active) {
       saw_projectile = 1;
     }
@@ -499,13 +468,12 @@ static void test_fireball_projectile_hits_and_disappears(void) {
 
 static void test_fireball_projectiles_cancel_each_other(void) {
   fighter_game_t game;
-  fighter_audio_command_list_t commands;
   fighter_player_result_t inputs[2];
   int saw_two_projectiles;
   int i;
 
   fighter_game_init(&game, NULL);
-  start_round(&game, &commands, inputs);
+  start_round(&game, inputs);
   game.players[0].x = 120;
   game.players[1].x = 420;
 
@@ -514,12 +482,12 @@ static void test_fireball_projectiles_cancel_each_other(void) {
   inputs[0].attack_command = FIGHTER_ATTACK_FIREBALL;
   inputs[1].attack_pressed = 1;
   inputs[1].attack_command = FIGHTER_ATTACK_FIREBALL;
-  fighter_game_tick(&game, inputs, &commands);
+  fighter_game_tick(&game, inputs);
 
   saw_two_projectiles = 0;
   for (i = 0; i < 80; ++i) {
     clear_inputs(inputs);
-    fighter_game_tick(&game, inputs, &commands);
+    fighter_game_tick(&game, inputs);
     if (game.projectiles[0].active && game.projectiles[1].active) {
       saw_two_projectiles = 1;
     }
@@ -538,12 +506,11 @@ static void test_fireball_projectiles_cancel_each_other(void) {
 
 static void test_fireball_projectile_disappears_at_boundary(void) {
   fighter_game_t game;
-  fighter_audio_command_list_t commands;
   fighter_player_result_t inputs[2];
   int i;
 
   fighter_game_init(&game, NULL);
-  start_round(&game, &commands, inputs);
+  start_round(&game, inputs);
   game.players[0].x = game.config.screen_width - game.config.player_width - 90;
   game.players[1].x = game.config.screen_width - game.config.player_width;
   game.players[1].y = 0;
@@ -552,11 +519,11 @@ static void test_fireball_projectile_disappears_at_boundary(void) {
   clear_inputs(inputs);
   inputs[0].attack_pressed = 1;
   inputs[0].attack_command = FIGHTER_ATTACK_FIREBALL;
-  fighter_game_tick(&game, inputs, &commands);
+  fighter_game_tick(&game, inputs);
 
   for (i = 0; i < 80; ++i) {
     clear_inputs(inputs);
-    fighter_game_tick(&game, inputs, &commands);
+    fighter_game_tick(&game, inputs);
     if (!game.projectiles[0].active) {
       break;
     }
@@ -568,25 +535,24 @@ static void test_fireball_projectile_disappears_at_boundary(void) {
 
 static void test_dragon_punch_animation_not_interrupted_by_input(void) {
   fighter_game_t game;
-  fighter_audio_command_list_t commands;
   fighter_player_result_t inputs[2];
   int i;
 
   fighter_game_init(&game, NULL);
-  start_round(&game, &commands, inputs);
+  start_round(&game, inputs);
   game.players[1].x = 520;
 
   clear_inputs(inputs);
   inputs[0].attack_pressed = 1;
   inputs[0].attack_command = FIGHTER_ATTACK_DRAGON_PUNCH;
-  fighter_game_tick(&game, inputs, &commands);
+  fighter_game_tick(&game, inputs);
 
   for (i = 0; i < 20; ++i) {
     clear_inputs(inputs);
     inputs[0].move_left = 1;
     inputs[0].crouch_held = 1;
     inputs[0].guard_held = 1;
-    fighter_game_tick(&game, inputs, &commands);
+    fighter_game_tick(&game, inputs);
   }
 
   EXPECT_TRUE(game.players[0].attack_phase != FIGHTER_ATTACK_PHASE_NONE);
@@ -605,12 +571,11 @@ static void test_defaults_reduce_mobility(void) {
 
 static void test_attack_hits_only_once_per_attack(void) {
   fighter_game_t game;
-  fighter_audio_command_list_t commands;
   fighter_player_result_t inputs[2];
   int i;
 
   fighter_game_init(&game, NULL);
-  start_round(&game, &commands, inputs);
+  start_round(&game, inputs);
 
   game.players[0].x = 260;
   game.players[1].x = 300;
@@ -618,11 +583,11 @@ static void test_attack_hits_only_once_per_attack(void) {
   clear_inputs(inputs);
   inputs[0].attack_pressed = 1;
   inputs[0].attack_command = FIGHTER_ATTACK_NORMAL;
-  fighter_game_tick(&game, inputs, &commands);
+  fighter_game_tick(&game, inputs);
 
   clear_inputs(inputs);
   for (i = 0; i < 10; ++i) {
-    fighter_game_tick(&game, inputs, &commands);
+    fighter_game_tick(&game, inputs);
   }
 
   EXPECT_EQ_INT(game.players[1].hp, game.config.max_hp - 12);

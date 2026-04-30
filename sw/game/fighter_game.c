@@ -110,16 +110,6 @@ static int fighter_attack_chip_damage(fighter_attack_profile_t profile) {
   return damage;
 }
 
-static void fighter_game_push_audio(fighter_audio_command_list_t *audio_commands,
-                                    fighter_audio_command_type_t type,
-                                    fighter_audio_track_t track) {
-  if (!audio_commands) {
-    return;
-  }
-
-  (void)fighter_audio_command_list_push(audio_commands, type, track);
-}
-
 static void fighter_player_sync_attack_visual_frames(
     fighter_player_state_t *player) {
   if (!player) {
@@ -519,37 +509,22 @@ static void fighter_game_clear_frame_outputs(fighter_game_t *game) {
   }
 }
 
-static void fighter_game_enter_menu(fighter_game_t *game,
-                                    fighter_audio_command_list_t *audio_commands) {
+static void fighter_game_enter_menu(fighter_game_t *game) {
   fighter_game_reset_round(game);
   game->state = FIGHTER_GAME_STATE_MENU;
   game->state_frames = 0;
   game->finish_reason = FIGHTER_FINISH_REASON_EXIT;
-  if (!game->menu_bgm_active) {
-    fighter_game_push_audio(audio_commands, FIGHTER_AUDIO_COMMAND_START_LOOP,
-                            FIGHTER_AUDIO_TRACK_MENU_BGM);
-    game->menu_bgm_active = 1;
-  }
 }
 
-static void fighter_game_start_round(fighter_game_t *game,
-                                     fighter_audio_command_list_t *audio_commands) {
+static void fighter_game_start_round(fighter_game_t *game) {
   fighter_game_reset_round(game);
   game->state = FIGHTER_GAME_STATE_PLAYING;
   game->state_frames = 0;
-  if (game->menu_bgm_active) {
-    fighter_game_push_audio(audio_commands, FIGHTER_AUDIO_COMMAND_STOP_LOOP,
-                            FIGHTER_AUDIO_TRACK_MENU_BGM);
-    game->menu_bgm_active = 0;
-  }
-  fighter_game_push_audio(audio_commands, FIGHTER_AUDIO_COMMAND_PLAY_ONCE,
-                          FIGHTER_AUDIO_TRACK_MENU_CONFIRM);
 }
 
 static void fighter_game_enter_game_over(fighter_game_t *game,
                                          fighter_winner_t winner,
-                                         fighter_finish_reason_t reason,
-                                         fighter_audio_command_list_t *audio_commands) {
+                                         fighter_finish_reason_t reason) {
   int i;
 
   if (!game) {
@@ -581,8 +556,6 @@ static void fighter_game_enter_game_over(fighter_game_t *game,
     game->players[1].state_frame = 0;
   }
 
-  fighter_game_push_audio(audio_commands, FIGHTER_AUDIO_COMMAND_PLAY_ONCE,
-                          FIGHTER_AUDIO_TRACK_GAME_OVER);
 }
 
 static void fighter_game_update_facing(fighter_game_t *game) {
@@ -888,9 +861,7 @@ static void fighter_game_resolve_attacks(
   }
 }
 
-static void fighter_game_handle_round_end_from_hp(
-    fighter_game_t *game,
-    fighter_audio_command_list_t *audio_commands) {
+static void fighter_game_handle_round_end_from_hp(fighter_game_t *game) {
   int p1_dead;
   int p2_dead;
 
@@ -913,14 +884,13 @@ static void fighter_game_handle_round_end_from_hp(
 
   if (p1_dead && p2_dead) {
     fighter_game_enter_game_over(game, FIGHTER_WINNER_DRAW,
-                                 FIGHTER_FINISH_REASON_DOUBLE_KO,
-                                 audio_commands);
+                                 FIGHTER_FINISH_REASON_DOUBLE_KO);
   } else if (p1_dead) {
     fighter_game_enter_game_over(game, FIGHTER_WINNER_PLAYER2,
-                                 FIGHTER_FINISH_REASON_KO, audio_commands);
+                                 FIGHTER_FINISH_REASON_KO);
   } else {
     fighter_game_enter_game_over(game, FIGHTER_WINNER_PLAYER1,
-                                 FIGHTER_FINISH_REASON_KO, audio_commands);
+                                 FIGHTER_FINISH_REASON_KO);
   }
 }
 
@@ -1029,32 +999,24 @@ static void fighter_game_handle_player(fighter_game_t *game,
 }
 
 static void fighter_game_tick_menu(fighter_game_t *game,
-                                   const fighter_player_result_t inputs[2],
-                                   fighter_audio_command_list_t *audio_commands) {
+                                   const fighter_player_result_t inputs[2]) {
   int i;
-
-  if (!game->menu_bgm_active) {
-    fighter_game_push_audio(audio_commands, FIGHTER_AUDIO_COMMAND_START_LOOP,
-                            FIGHTER_AUDIO_TRACK_MENU_BGM);
-    game->menu_bgm_active = 1;
-  }
 
   for (i = 0; i < FIGHTER_PLAYER_COUNT; ++i) {
     if (inputs[i].any_input_pressed) {
-      fighter_game_start_round(game, audio_commands);
+      fighter_game_start_round(game);
       return;
     }
   }
 }
 
 static void fighter_game_tick_playing(fighter_game_t *game,
-                                      const fighter_player_result_t inputs[2],
-                                      fighter_audio_command_list_t *audio_commands) {
+                                      const fighter_player_result_t inputs[2]) {
   int i;
 
   for (i = 0; i < FIGHTER_PLAYER_COUNT; ++i) {
     if (inputs[i].exit_requested) {
-      fighter_game_enter_menu(game, audio_commands);
+      fighter_game_enter_menu(game);
       return;
     }
   }
@@ -1071,7 +1033,7 @@ static void fighter_game_tick_playing(fighter_game_t *game,
     fighter_game_update_visual_state(game, &game->players[i], &inputs[i]);
   }
 
-  fighter_game_handle_round_end_from_hp(game, audio_commands);
+  fighter_game_handle_round_end_from_hp(game);
   if (game->state != FIGHTER_GAME_STATE_PLAYING) {
     return;
   }
@@ -1088,14 +1050,12 @@ static void fighter_game_tick_playing(fighter_game_t *game,
     } else if (game->players[1].hp > game->players[0].hp) {
       winner = FIGHTER_WINNER_PLAYER2;
     }
-    fighter_game_enter_game_over(game, winner, FIGHTER_FINISH_REASON_TIME_OUT,
-                                 audio_commands);
+    fighter_game_enter_game_over(game, winner, FIGHTER_FINISH_REASON_TIME_OUT);
   }
 }
 
 static void fighter_game_tick_game_over(fighter_game_t *game,
-                                        const fighter_player_result_t inputs[2],
-                                        fighter_audio_command_list_t *audio_commands) {
+                                        const fighter_player_result_t inputs[2]) {
   int i;
 
   if (!fighter_game_game_over_ready(game)) {
@@ -1104,11 +1064,11 @@ static void fighter_game_tick_game_over(fighter_game_t *game,
 
   for (i = 0; i < FIGHTER_PLAYER_COUNT; ++i) {
     if (inputs[i].exit_requested) {
-      fighter_game_enter_menu(game, audio_commands);
+      fighter_game_enter_menu(game);
       return;
     }
     if (inputs[i].attack_pressed || inputs[i].guard_pressed) {
-      fighter_game_start_round(game, audio_commands);
+      fighter_game_start_round(game);
       return;
     }
   }
@@ -1158,16 +1118,11 @@ void fighter_game_init(fighter_game_t *game, const fighter_game_config_t *config
 }
 
 void fighter_game_tick(fighter_game_t *game,
-                       const fighter_player_result_t inputs[FIGHTER_PLAYER_COUNT],
-                       fighter_audio_command_list_t *audio_commands) {
+                       const fighter_player_result_t inputs[FIGHTER_PLAYER_COUNT]) {
   fighter_game_state_t previous_state;
 
   if (!game || !inputs) {
     return;
-  }
-
-  if (audio_commands) {
-    fighter_audio_command_list_clear(audio_commands);
   }
 
   fighter_game_clear_frame_outputs(game);
@@ -1176,13 +1131,13 @@ void fighter_game_tick(fighter_game_t *game,
 
   switch (game->state) {
     case FIGHTER_GAME_STATE_MENU:
-      fighter_game_tick_menu(game, inputs, audio_commands);
+      fighter_game_tick_menu(game, inputs);
       break;
     case FIGHTER_GAME_STATE_PLAYING:
-      fighter_game_tick_playing(game, inputs, audio_commands);
+      fighter_game_tick_playing(game, inputs);
       break;
     case FIGHTER_GAME_STATE_GAME_OVER:
-      fighter_game_tick_game_over(game, inputs, audio_commands);
+      fighter_game_tick_game_over(game, inputs);
       break;
     default:
       break;

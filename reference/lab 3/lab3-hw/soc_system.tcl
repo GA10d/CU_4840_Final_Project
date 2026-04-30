@@ -46,13 +46,6 @@ foreach {pin port} {
     PIN_AK3 ADC_DOUT	     
     PIN_AK2 ADC_SCLK
     
-    PIN_K7 AUD_ADCDAT	     
-    PIN_K8 AUD_ADCLRCK	     
-    PIN_H7 AUD_BCLK	     
-    PIN_J7 AUD_DACDAT	     
-    PIN_H8 AUD_DACLRCK	     
-    PIN_G7 AUD_XCK
-    
     PIN_AA16 CLOCK2_50	     
     PIN_Y26 CLOCK3_50	     
     PIN_K14 CLOCK4_50	     

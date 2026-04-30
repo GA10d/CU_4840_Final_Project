@@ -17,14 +17,6 @@
          type = "int";
       }
    }
-   element fighter_audio_0
-   {
-      datum _sortIndex
-      {
-         value = "2";
-         type = "int";
-      }
-   }
    element fighter_vga_0
    {
       datum _sortIndex
@@ -64,11 +56,6 @@
  <instanceScript></instanceScript>
  <interface name="clk" internal="clk_0.clk_in" type="clock" dir="end" />
  <interface
-   name="fighter_audio_0_fighter_audio"
-   internal="fighter_audio_0.fighter_audio"
-   type="conduit"
-   dir="end" />
- <interface
    name="fighter_vga_0_vga"
    internal="fighter_vga_0.vga"
    type="conduit"
@@ -81,14 +68,6 @@
   <parameter name="clockFrequencyKnown" value="true" />
   <parameter name="inputClockFrequency" value="0" />
   <parameter name="resetSynchronousEdges" value="NONE" />
- </module>
- <module name="fighter_audio_0" kind="fighter_audio" version="1.0" enabled="1">
-  <parameter name="BCLK_DIV" value="16" />
-  <parameter name="CLK_HZ" value="50000000" />
-  <parameter name="FIFO_DEPTH" value="128" />
-  <parameter name="I2C_DEVICE_ADDR" value="26" />
-  <parameter name="I2C_RATE_HZ" value="100000" />
-  <parameter name="XCK_DIV" value="4" />
  </module>
  <module name="fighter_vga_0" kind="fighter_vga" version="1.0" enabled="1" />
  <module name="hps_0" kind="altera_hps" version="21.1" enabled="1">
@@ -625,25 +604,11 @@
    kind="avalon"
    version="21.1"
    start="hps_0.h2f_lw_axi_master"
-   end="fighter_audio_0.avalon_slave_0">
-  <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x0000" />
-  <parameter name="defaultConnection" value="false" />
- </connection>
- <connection
-   kind="avalon"
-   version="21.1"
-   start="hps_0.h2f_lw_axi_master"
    end="fighter_vga_0.avalon_slave_0">
   <parameter name="arbitrationPriority" value="1" />
   <parameter name="baseAddress" value="0x40000" />
   <parameter name="defaultConnection" value="false" />
  </connection>
- <connection
-   kind="clock"
-   version="21.1"
-   start="clk_0.clk"
-   end="fighter_audio_0.clock" />
  <connection
    kind="clock"
    version="21.1"
@@ -664,11 +629,6 @@
    version="21.1"
    start="clk_0.clk"
    end="hps_0.h2f_lw_axi_clock" />
- <connection
-   kind="reset"
-   version="21.1"
-   start="clk_0.clk_reset"
-   end="fighter_audio_0.reset" />
  <connection
    kind="reset"
    version="21.1"

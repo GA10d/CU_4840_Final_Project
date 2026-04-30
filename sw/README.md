@@ -1,158 +1,107 @@
 # Software Module Notes
 
-这部分现在包含两块内容：
-
-- `HPS` 侧的 USB 键盘输入识别
-- `Phase 1` 的状态机 / 渲染 / 音频调度 demo
+This directory contains the HPS-side game code, input handling, animation
+binding, rendering backends, and smoke tests for the DE1-SoC fighting game.
 
 ## Default Assumption
 
-- 使用 `DE1-SoC` 板上 `HPS 2-port USB host`
-- 最多接入 `2` 个 USB 键盘
-- `P1 = keyboard 1`
-- `P2 = keyboard 2`
-- 两边默认使用同一套按键
+- Target board: DE1-SoC.
+- Input: up to two USB HID keyboards through the HPS USB host.
+- Player 1 uses keyboard 1; player 2 uses keyboard 2.
+- Both players use the same key layout.
 
 ## Default Mapping
 
-- `W`: 跳跃
-- `A`: 左移
-- `D`: 右移
-- `S`: 下蹲
-- `J`: 普通攻击
-- `A + J`: 发波
-- `D + J`: 升龙
-- `W + J`: 跳跃攻击
-- `W + D + J`: 前跳攻击
-- `W + A + J`: 后跳攻击
-- `S + J`: 扫腿
-- `K`: 防御
-- `L`: 退出当前对局并返回主菜单
+- `W`: jump
+- `A`: move left
+- `D`: move right
+- `S`: crouch
+- `J`: normal attack
+- `A + J`: fireball
+- `D + J`: dragon punch
+- `W + J`: jump attack
+- `W + D + J`: forward jump attack
+- `W + A + J`: back jump attack
+- `S + J`: sweep
+- `K`: guard
+- `L`: exit the current round and return to the menu
 
-菜单输入默认只读取 `keyboard 1`：
+Menu input is read from keyboard 1:
 
-- `A / D`: 切换菜单选项
-- `J`: 确认
+- `A / D`: change menu selection
+- `J`: confirm
 
 ## Files
 
-- `main_phase1_demo.c`
-  - Phase 1 主 demo
-  - 支持脚本模式和 USB 模式
-- `game/`
-  - Phase 1 状态机、倒计时、血量、命中判定
-- `render_if/`
-  - console / Linux framebuffer / FPGA VGA MMIO 渲染
-  - MMIO 后端会把完整游戏画面渲染成 `320x240 RGB565` 帧缓冲并写入 FPGA VGA IP
-- `audio/`
-  - 菜单 BGM、SFX 的事件调度
-  - WM8731/MMIO 播放路径
-  - 命令行播放器 fallback
-- `include/usb_hid_keyboard.h`
-  - 底层 USB HID keyboard 管理接口
-- `input/usb_hid_keyboard.c`
-  - 通过 `libusb` 枚举并轮询最多两个键盘
-- `include/fighter_input.h`
-  - 菜单和战斗输入解析接口
-- `input/fighter_input.c`
-  - 将按键组合解析成菜单动作和战斗指令
-- `main_input_demo.c`
-  - USB 键盘实时 demo
-  - 默认优先输出到 Linux framebuffer/VGA，失败时回退到 console
-- `main_audio_demo.c`
-  - 一个最小音频 bring-up 工具
-- `tests/test_phase1.c`
-  - Phase 1 自动测试
+- `main_phase1_demo.c`: scripted or USB-driven integrated demo.
+- `game/`: game state machine, combat rules, health, timer, projectiles.
+- `input/`: HID report parsing and gameplay command mapping.
+- `render_if/`: console, Linux framebuffer, and FPGA VGA MMIO render backends.
+- `fighter_animation.c`: sprite animation loading and frame selection.
+- `tests/test_phase1.c`: focused gameplay and rendering-interface tests.
+- `main_vga_probe.c`: minimal VGA MMIO bring-up tool.
 
 ## Build
 
-在 HPS Linux 上需要安装 `libusb-1.0` 开发包，例如：
+On the HPS Linux target, install the usual C build tools. USB support also needs
+`libusb-1.0` development files:
 
 ```bash
 apt install -y gcc make pkg-config libusb-1.0-0-dev
 ```
 
-编译：
+Build everything available for the current system:
 
 ```bash
 cd sw
 make
 ```
 
-不依赖 `libusb` 的可执行文件：
+Core executables:
 
 ```bash
-./audio_demo
 ./phase1_demo
 ./phase1_test
+./vga_probe
 ```
 
-如果系统里有 `libusb`，还会额外生成：
+If `libusb-1.0` is available, `make` also builds:
 
 ```bash
 ./input_demo
 ```
 
-运行：
+## Running
+
+The integrated demo can run without USB using deterministic scripts:
 
 ```bash
-./input_demo
+./phase1_demo --script smoke --console
+./phase1_demo --script ko --console
 ```
 
-VGA / framebuffer 输出：
+Use the hardware renderer when the VGA IP is programmed:
 
 ```bash
-./input_demo
-./input_demo --fb /dev/fb0
-./input_demo --console
-```
-
-`input_demo` 会先尝试 FPGA VGA MMIO：默认地址是 `0xFF240000`，对应硬件里的 `fighter_vga_0`。如果 MMIO 探测不到，会继续尝试 Linux framebuffer；如果都不可用，会自动打印 console 渲染状态，方便继续调试逻辑。
-
-音频 MMIO 默认地址是 `0xFF200000`，对应硬件里的 `fighter_audio_0`。如果你临时改过 Platform Designer 地址，可以用 `FIGHTER_AUDIO_MMIO_ADDR=0x...` 覆盖。
-
-`phase1_demo` 也走同一套 VGA/MMIO 渲染后端，适合跑固定脚本或不接键盘时做演示：
-
-```bash
-./phase1_demo --script ko
 ./phase1_demo --script smoke
 ./phase1_demo --usb
 ```
 
-游戏素材默认从 `/root/game_assets` 读取；如果在仓库里的 `sw/` 目录直接运行，也会回退到 `../game_assets`。目标板路径不一样时可以指定：
+The renderer first tries FPGA VGA MMIO at `0xFF240000`. If unavailable, it falls
+back to Linux framebuffer and then console output.
+
+Game assets are loaded from `/root/game_assets` by default, with a local fallback
+to `../game_assets` when running from `sw/`. Override the path when needed:
 
 ```bash
-FIGHTER_ASSET_ROOT=/path/to/game_assets ./input_demo
+FIGHTER_ASSET_ROOT=/path/to/game_assets ./phase1_demo
 ```
 
-VGA bring-up 可以先跑：
+VGA bring-up can be checked independently:
 
 ```bash
 ./vga_probe
 ```
 
-它会探测 `VPGA` 标识并写入一帧 RGB565 渐变，用来确认 HPS 到 FPGA VGA 帧缓冲链路。
-
-脚本方式验证 Phase 1：
-
-```bash
-./audio_demo --track menu_confirm --seconds 2
-./phase1_test
-./phase1_demo --script smoke --console
-./phase1_demo --script ko --console
-```
-
-如果要跑板载音频 bring-up，先看：
-
-- [audio_bringup_guide.md](/Users/guozhewen/Documents/GitHub/CU_4840_Final_Project/docs/audio_bringup_guide.md)
-
-## Integration Suggestion
-
-后续接入游戏逻辑时，建议保留现有两层结构：
-
-1. `usb_hid_keyboard`
-   - 负责读原始键盘 report
-2. `fighter_input`
-   - 负责把原始按键解析成游戏动作
-
-这样后面即使你们改成手柄输入，也只需要替换底层采集层，不必重写整套动作识别逻辑。
+It probes the `VPGA` identifier and writes a simple RGB565 gradient to confirm
+the HPS-to-FPGA framebuffer path.
