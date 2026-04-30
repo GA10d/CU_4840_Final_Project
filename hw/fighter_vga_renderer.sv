@@ -122,89 +122,89 @@ module fighter_vga_renderer (
   // 两块同尺寸 RAM 实现双缓冲：HPS 写后台 buffer，VGA 读前台 buffer，
   // 到 vblank 再交换，避免屏幕撕裂。
   altsyncram #(
-      .operation_mode("DUAL_PORT"),
-      .ram_block_type("M10K"),
-      .intended_device_family("Cyclone V"),
-      .width_a(32),
-      .widthad_a(16),
-      .numwords_a(FB_WORD_COUNT),
-      .width_b(32),
-      .widthad_b(16),
-      .numwords_b(FB_WORD_COUNT),
-      .width_byteena_a(1),
-      .outdata_reg_b("UNREGISTERED"),
-      .address_reg_b("CLOCK1"),
-      .read_during_write_mode_mixed_ports("OLD_DATA"),
-      .power_up_uninitialized("FALSE"),
-      .lpm_type("altsyncram")
+      .operation_mode("DUAL_PORT"),               // 双端口 RAM：A 口给 HPS 写，B 口给 VGA 读。
+      .ram_block_type("M10K"),                    // 使用 Cyclone V 片上 M10K block RAM。
+      .intended_device_family("Cyclone V"),       // 指定目标器件家族，帮助 Quartus 选择合适实现。
+      .width_a(32),                               // A 口数据宽度 32 bit，对齐 Avalon-MM word。
+      .widthad_a(16),                             // A 口地址宽度 16 bit，可寻址 65536 个 word。
+      .numwords_a(FB_WORD_COUNT),                 // A 口有效深度：一帧需要 38400 个 word。
+      .width_b(32),                               // B 口数据宽度 32 bit，一次读两个 RGB565 像素。
+      .widthad_b(16),                             // B 口地址宽度 16 bit，与 A 口同一帧地址范围一致。
+      .numwords_b(FB_WORD_COUNT),                 // B 口有效深度同样是一整帧。
+      .width_byteena_a(1),                        // A 口 byte enable 只有 1 位，表示整 32-bit word 写。
+      .outdata_reg_b("UNREGISTERED"),             // B 口读数据不额外打一拍，降低 VGA 读路径延迟。
+      .address_reg_b("CLOCK1"),                   // B 口地址在 clock1 域寄存，匹配读端口时序。
+      .read_during_write_mode_mixed_ports("OLD_DATA"), // A/B 同址读写时，读端返回旧数据，避免半写画面。
+      .power_up_uninitialized("FALSE"),           // 上电不保持未初始化状态，让仿真/综合行为更可控。
+      .lpm_type("altsyncram")                     // Intel 参数化 RAM IP 类型名。
   ) framebuffer_ram0 (
       // RAM0：当 display_buffer=0 时被 VGA 读取；当 display_buffer=1 时被 HPS 写入。
-      .clock0(clk_50),
-      .clock1(clk_50),
-      .clocken0(1'b1),
-      .clocken1(1'b1),
-      .clocken2(1'b1),
-      .clocken3(1'b1),
-      .aclr0(1'b0),
-      .aclr1(1'b0),
-      .addressstall_a(1'b0),
-      .addressstall_b(1'b0),
-      .address_a(frame_write_addr),
-      .address_b(frame_read_addr),
-      .data_a(avs_writedata),
-      .data_b(32'h00000000),
-      .wren_a(frame_write_enable && !frame_write_buffer),
-      .wren_b(1'b0),
-      .rden_a(1'b1),
-      .rden_b(1'b1),
-      .byteena_a(1'b1),
-      .byteena_b(1'b1),
-      .q_a(),
-      .q_b(read_word0),
-      .eccstatus()
+      .clock0(clk_50),                            // A 口时钟，HPS 写入逻辑使用 50MHz。
+      .clock1(clk_50),                            // B 口时钟，VGA 读取逻辑也使用同一个 50MHz。
+      .clocken0(1'b1),                            // A 口时钟使能，固定开启。
+      .clocken1(1'b1),                            // B 口时钟使能，固定开启。
+      .clocken2(1'b1),                            // altsyncram 额外时钟使能端，未用但需固定有效。
+      .clocken3(1'b1),                            // altsyncram 额外时钟使能端，未用但需固定有效。
+      .aclr0(1'b0),                               // A 口异步清零未使用，固定不清零。
+      .aclr1(1'b0),                               // B 口异步清零未使用，固定不清零。
+      .addressstall_a(1'b0),                      // A 口地址不暂停，每次写都使用当前 frame_write_addr。
+      .addressstall_b(1'b0),                      // B 口地址不暂停，每个像素节拍更新 frame_read_addr。
+      .address_a(frame_write_addr),               // A 口写地址：软件 framebuffer word offset。
+      .address_b(frame_read_addr),                // B 口读地址：VGA 扫描当前像素对应的 word。
+      .data_a(avs_writedata),                     // A 口写数据：一个 32-bit word，包含两个 RGB565 像素。
+      .data_b(32'h00000000),                      // B 口写数据未使用，因为 B 口只读。
+      .wren_a(frame_write_enable && !frame_write_buffer), // A 口写使能：后台 buffer 为 RAM0 时写入。
+      .wren_b(1'b0),                              // B 口写使能关闭，VGA 端不写 RAM。
+      .rden_a(1'b1),                              // A 口读使能固定开，但 q_a 不连接，所以实际不用。
+      .rden_b(1'b1),                              // B 口读使能固定开，持续给 VGA 扫描提供数据。
+      .byteena_a(1'b1),                           // A 口整 word 写，不做按字节局部写。
+      .byteena_b(1'b1),                           // B 口 byte enable 固定有效，读端保持接口完整。
+      .q_a(),                                     // A 口读数据未使用，HPS 不从 framebuffer RAM 回读。
+      .q_b(read_word0),                           // B 口读数据输出到 read_word0，供 display_buffer 选择。
+      .eccstatus()                                // ECC 状态未使用，M10K framebuffer 不启用 ECC 处理。
   );
 
   altsyncram #(
-      .operation_mode("DUAL_PORT"),
-      .ram_block_type("M10K"),
-      .intended_device_family("Cyclone V"),
-      .width_a(32),
-      .widthad_a(16),
-      .numwords_a(FB_WORD_COUNT),
-      .width_b(32),
-      .widthad_b(16),
-      .numwords_b(FB_WORD_COUNT),
-      .width_byteena_a(1),
-      .outdata_reg_b("UNREGISTERED"),
-      .address_reg_b("CLOCK1"),
-      .read_during_write_mode_mixed_ports("OLD_DATA"),
-      .power_up_uninitialized("FALSE"),
-      .lpm_type("altsyncram")
+      .operation_mode("DUAL_PORT"),               // 双端口 RAM：A 口给 HPS 写，B 口给 VGA 读。
+      .ram_block_type("M10K"),                    // 使用 Cyclone V 片上 M10K block RAM。
+      .intended_device_family("Cyclone V"),       // 指定目标器件家族。
+      .width_a(32),                               // A 口 32-bit word 写入。
+      .widthad_a(16),                             // A 口 16-bit word 地址。
+      .numwords_a(FB_WORD_COUNT),                 // A 口深度为一帧 framebuffer。
+      .width_b(32),                               // B 口 32-bit word 读出。
+      .widthad_b(16),                             // B 口 16-bit word 地址。
+      .numwords_b(FB_WORD_COUNT),                 // B 口深度为一帧 framebuffer。
+      .width_byteena_a(1),                        // A 口只支持整 word 写。
+      .outdata_reg_b("UNREGISTERED"),             // B 口输出不额外寄存。
+      .address_reg_b("CLOCK1"),                   // B 口地址由 clock1 捕获。
+      .read_during_write_mode_mixed_ports("OLD_DATA"), // 同址读写返回旧数据。
+      .power_up_uninitialized("FALSE"),           // 上电初始化行为可控。
+      .lpm_type("altsyncram")                     // Intel 参数化 RAM IP 类型名。
   ) framebuffer_ram1 (
       // RAM1：当 display_buffer=1 时被 VGA 读取；当 display_buffer=0 时被 HPS 写入。
-      .clock0(clk_50),
-      .clock1(clk_50),
-      .clocken0(1'b1),
-      .clocken1(1'b1),
-      .clocken2(1'b1),
-      .clocken3(1'b1),
-      .aclr0(1'b0),
-      .aclr1(1'b0),
-      .addressstall_a(1'b0),
-      .addressstall_b(1'b0),
-      .address_a(frame_write_addr),
-      .address_b(frame_read_addr),
-      .data_a(avs_writedata),
-      .data_b(32'h00000000),
-      .wren_a(frame_write_enable && frame_write_buffer),
-      .wren_b(1'b0),
-      .rden_a(1'b1),
-      .rden_b(1'b1),
-      .byteena_a(1'b1),
-      .byteena_b(1'b1),
-      .q_a(),
-      .q_b(read_word1),
-      .eccstatus()
+      .clock0(clk_50),                            // A 口时钟，HPS 写入侧。
+      .clock1(clk_50),                            // B 口时钟，VGA 读取侧。
+      .clocken0(1'b1),                            // A 口时钟使能固定开启。
+      .clocken1(1'b1),                            // B 口时钟使能固定开启。
+      .clocken2(1'b1),                            // 未用额外时钟使能，固定有效。
+      .clocken3(1'b1),                            // 未用额外时钟使能，固定有效。
+      .aclr0(1'b0),                               // A 口异步清零关闭。
+      .aclr1(1'b0),                               // B 口异步清零关闭。
+      .addressstall_a(1'b0),                      // A 口地址不暂停。
+      .addressstall_b(1'b0),                      // B 口地址不暂停。
+      .address_a(frame_write_addr),               // A 口写地址：软件 framebuffer word offset。
+      .address_b(frame_read_addr),                // B 口读地址：当前 VGA 扫描 word。
+      .data_a(avs_writedata),                     // A 口写入两个打包 RGB565 像素。
+      .data_b(32'h00000000),                      // B 口写数据未使用。
+      .wren_a(frame_write_enable && frame_write_buffer), // A 口写使能：后台 buffer 为 RAM1 时写入。
+      .wren_b(1'b0),                              // B 口只读，不允许写。
+      .rden_a(1'b1),                              // A 口读使能固定开，但 q_a 未用。
+      .rden_b(1'b1),                              // B 口读使能固定开，供 VGA 连续扫描。
+      .byteena_a(1'b1),                           // A 口整 word 写。
+      .byteena_b(1'b1),                           // B 口 byte enable 固定有效。
+      .q_a(),                                     // A 口读数据未连接。
+      .q_b(read_word1),                           // B 口读数据输出到 read_word1。
+      .eccstatus()                                // ECC 状态未使用。
   );
 
   // Avalon-MM 读寄存器。所有返回值都扩展/保持为 32 bit，以匹配总线宽度。
