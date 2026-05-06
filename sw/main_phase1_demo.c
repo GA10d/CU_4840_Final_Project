@@ -1,9 +1,11 @@
 #include "fighter_audio.h"
 #include "fighter_game.h"
+#include "fighter_gamepad.h"
 #include "fighter_input.h"
 #include "fighter_renderer.h"
 #include "fighter_animation.h"
 
+#include <errno.h>
 #include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -19,7 +21,8 @@ static volatile sig_atomic_t g_running = 1;
 
 typedef enum {
   FIGHTER_INPUT_MODE_SCRIPT = 0,
-  FIGHTER_INPUT_MODE_USB = 1
+  FIGHTER_INPUT_MODE_USB = 1,
+  FIGHTER_INPUT_MODE_GAMEPAD = 2
 } fighter_input_mode_t;
 
 typedef enum {
@@ -107,9 +110,22 @@ static const char *fighter_script_name(fighter_script_kind_t kind) {
   }
 }
 
+static const char *fighter_input_mode_name(fighter_input_mode_t mode,
+                                           fighter_script_kind_t script_kind) {
+  switch (mode) {
+    case FIGHTER_INPUT_MODE_USB:
+      return "usb_keyboard";
+    case FIGHTER_INPUT_MODE_GAMEPAD:
+      return "gamepad";
+    case FIGHTER_INPUT_MODE_SCRIPT:
+    default:
+      return fighter_script_name(script_kind);
+  }
+}
+
 static void fighter_print_usage(const char *argv0) {
-  printf("usage: %s [--usb] [--script smoke|ko] [--console] [--fb PATH] "
-         "[--audio] [--frames N]\n",
+  printf("usage: %s [--usb] [--gamepad] [--gamepad0 PATH] [--gamepad1 PATH] "
+         "[--script smoke|ko] [--console] [--fb PATH] [--audio] [--frames N]\n",
          argv0);
 }
 
@@ -123,9 +139,11 @@ int main(int argc, char **argv) {
   fighter_audio_options_t audio_options;
   fighter_animation_system_t anim_system;
   fighter_player_parser_t parsers[FIGHTER_PLAYER_COUNT];
+  fighter_gamepad_t gamepads[FIGHTER_PLAYER_COUNT];
   fighter_audio_command_list_t audio_commands;
   fighter_input_mode_t input_mode;
   fighter_script_kind_t script_kind;
+  const char *gamepad_paths[FIGHTER_PLAYER_COUNT];
   int max_frames;
   int frame_index;
   int realtime;
@@ -140,6 +158,8 @@ int main(int argc, char **argv) {
 
   input_mode = FIGHTER_INPUT_MODE_SCRIPT;
   script_kind = FIGHTER_SCRIPT_KO;
+  gamepad_paths[0] = "/dev/input/event0";
+  gamepad_paths[1] = "/dev/input/event1";
   max_frames = 420;
   realtime = 0;
 
@@ -149,6 +169,20 @@ int main(int argc, char **argv) {
   for (i = 1; i < argc; ++i) {
     if (strcmp(argv[i], "--usb") == 0) {
       input_mode = FIGHTER_INPUT_MODE_USB;
+      max_frames = -1;
+      realtime = 1;
+    } else if (strcmp(argv[i], "--gamepad") == 0) {
+      input_mode = FIGHTER_INPUT_MODE_GAMEPAD;
+      max_frames = -1;
+      realtime = 1;
+    } else if (strcmp(argv[i], "--gamepad0") == 0 && i + 1 < argc) {
+      gamepad_paths[0] = argv[++i];
+      input_mode = FIGHTER_INPUT_MODE_GAMEPAD;
+      max_frames = -1;
+      realtime = 1;
+    } else if (strcmp(argv[i], "--gamepad1") == 0 && i + 1 < argc) {
+      gamepad_paths[1] = argv[++i];
+      input_mode = FIGHTER_INPUT_MODE_GAMEPAD;
       max_frames = -1;
       realtime = 1;
     } else if (strcmp(argv[i], "--script") == 0 && i + 1 < argc) {
@@ -202,6 +236,22 @@ int main(int argc, char **argv) {
 
   for (i = 0; i < FIGHTER_PLAYER_COUNT; ++i) {
     fighter_player_parser_init(&parsers[i]);
+    fighter_gamepad_init(&gamepads[i]);
+  }
+
+  if (input_mode == FIGHTER_INPUT_MODE_GAMEPAD) {
+    for (i = 0; i < FIGHTER_PLAYER_COUNT; ++i) {
+      if (fighter_gamepad_open(&gamepads[i], gamepad_paths[i]) != 0) {
+        fprintf(stderr, "failed to open gamepad %d at %s: %s\n", i + 1,
+                gamepad_paths[i], strerror(errno));
+        if (i == 0) {
+          fighter_animation_system_close(&anim_system);
+          fighter_renderer_close(&renderer);
+          fighter_audio_close(&audio_context);
+          return 1;
+        }
+      }
+    }
   }
 
 #if FIGHTER_ENABLE_LIBUSB
@@ -229,7 +279,13 @@ int main(int argc, char **argv) {
 
   printf("phase1 demo starting\n");
   printf("  input mode: %s\n",
-         input_mode == FIGHTER_INPUT_MODE_USB ? "usb" : fighter_script_name(script_kind));
+         fighter_input_mode_name(input_mode, script_kind));
+  if (input_mode == FIGHTER_INPUT_MODE_GAMEPAD) {
+    for (i = 0; i < FIGHTER_PLAYER_COUNT; ++i) {
+      printf("  gamepad %d : %s%s\n", i + 1, gamepad_paths[i],
+             gamepads[i].connected ? "" : " (unavailable)");
+    }
+  }
   printf("  renderer  : %s\n", fighter_renderer_backend_name(&renderer));
   if (strcmp(fighter_renderer_backend_name(&renderer), "mmio") == 0) {
     printf("  detail    : %s\n", fighter_renderer_status_detail(&renderer));
@@ -278,7 +334,20 @@ int main(int argc, char **argv) {
       }
     }
 
-    if (use_fixed_timestep && input_mode == FIGHTER_INPUT_MODE_USB) {
+    if (use_fixed_timestep && input_mode == FIGHTER_INPUT_MODE_GAMEPAD) {
+      for (i = 0; i < FIGHTER_PLAYER_COUNT; ++i) {
+        memset(&step_inputs[i], 0, sizeof(step_inputs[i]));
+        if (gamepads[i].connected &&
+            fighter_gamepad_update(&gamepads[i], &step_inputs[i]) != 0) {
+          fprintf(stderr, "gamepad %d poll failed, stopping demo\n", i + 1);
+          g_running = 0;
+          break;
+        }
+      }
+      if (!g_running) {
+        break;
+      }
+    } else if (use_fixed_timestep && input_mode == FIGHTER_INPUT_MODE_USB) {
       for (i = 0; i < FIGHTER_PLAYER_COUNT; ++i) {
         usb_hid_keyboard_report_clear(&reports[i]);
       }
@@ -324,6 +393,21 @@ int main(int argc, char **argv) {
         }
       }
 
+      if (!use_fixed_timestep && input_mode == FIGHTER_INPUT_MODE_GAMEPAD) {
+        for (i = 0; i < FIGHTER_PLAYER_COUNT; ++i) {
+          memset(&step_inputs[i], 0, sizeof(step_inputs[i]));
+          if (gamepads[i].connected &&
+              fighter_gamepad_update(&gamepads[i], &step_inputs[i]) != 0) {
+            fprintf(stderr, "gamepad %d poll failed, stopping demo\n", i + 1);
+            g_running = 0;
+            break;
+          }
+        }
+        if (!g_running) {
+          break;
+        }
+      }
+
       fighter_game_tick(&game, step_inputs, &audio_commands);
       fighter_animation_system_update(&anim_system, &game);
       fighter_audio_process_commands(&audio_context, &audio_commands);
@@ -346,6 +430,9 @@ int main(int argc, char **argv) {
     usb_hid_keyboard_manager_close(&keyboard_manager);
   }
 #endif
+  for (i = 0; i < FIGHTER_PLAYER_COUNT; ++i) {
+    fighter_gamepad_close(&gamepads[i]);
+  }
 
   fighter_animation_system_close(&anim_system);
   fighter_audio_close(&audio_context);

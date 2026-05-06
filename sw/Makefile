@@ -17,6 +17,7 @@ LDFLAGS += -pthread
 COMMON_SRCS := \
 	audio/fighter_audio.c \
 	game/fighter_game.c \
+	input/fighter_gamepad.c \
 	input/fighter_input.c \
 	input/hid_keyboard_report.c \
 	fighter_animation.c \
