@@ -1,8 +1,6 @@
 #include "fighter_animation.h"
 
-#include <ctype.h>
 #include <dirent.h>
-#include <errno.h>
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -22,6 +20,11 @@ typedef struct {
   int count;
 } fighter_path_list_t;
 
+/*
+ * 释放单帧精灵资源。
+ * 参数：
+ *   sprite：要释放并清零的精灵对象。
+ */
 static void fighter_free_sprite(fighter_sprite_t *sprite) {
   if (!sprite) {
     return;
@@ -34,6 +37,11 @@ static void fighter_free_sprite(fighter_sprite_t *sprite) {
   sprite->height = 0;
 }
 
+/*
+ * 释放一个动画片段里的所有帧。
+ * 参数：
+ *   clip：要释放并清零的动画片段。
+ */
 static void fighter_free_clip(fighter_animation_clip_t *clip) {
   int i;
 
@@ -51,6 +59,11 @@ static void fighter_free_clip(fighter_animation_clip_t *clip) {
   clip->loop = 0;
 }
 
+/*
+ * 释放一个角色的整套动画资源。
+ * 参数：
+ *   set：包含 idle、walk、attack 等片段的角色动画集合。
+ */
 static void fighter_free_animation_set(fighter_character_animation_set_t *set) {
   if (!set) {
     return;
@@ -77,6 +90,11 @@ static void fighter_free_animation_set(fighter_character_animation_set_t *set) {
   fighter_free_clip(&set->sweep_attack);
 }
 
+/*
+ * 复制字符串到新分配的内存。
+ * 参数：
+ *   s：源字符串。
+ */
 static char *fighter_strdup_local(const char *s) {
   size_t n;
   char *out;
@@ -94,7 +112,12 @@ static char *fighter_strdup_local(const char *s) {
   return out;
 }
 
-static int fighter_has_ppm_extension(const char *name) {
+/*
+ * 判断文件名是否是 .rgb565 素材。
+ * 参数：
+ *   name：目录项文件名。
+ */
+static int fighter_has_rgb565_extension(const char *name) {
   size_t len;
 
   if (!name) {
@@ -102,18 +125,29 @@ static int fighter_has_ppm_extension(const char *name) {
   }
 
   len = strlen(name);
-  if (len < 4) {
+  if (len < 7) {
     return 0;
   }
-  return strcmp(name + len - 4, ".ppm") == 0;
+  return strcmp(name + len - 7, ".rgb565") == 0;
 }
 
+/*
+ * qsort 使用的路径字符串比较函数。
+ * 参数：
+ *   lhs：左侧 char* 指针地址。
+ *   rhs：右侧 char* 指针地址。
+ */
 static int fighter_compare_paths(const void *lhs, const void *rhs) {
   const char *const *a = (const char *const *)lhs;
   const char *const *b = (const char *const *)rhs;
   return strcmp(*a, *b);
 }
 
+/*
+ * 释放路径列表。
+ * 参数：
+ *   list：保存路径字符串数组的列表。
+ */
 static void fighter_path_list_free(fighter_path_list_t *list) {
   int i;
 
@@ -129,8 +163,14 @@ static void fighter_path_list_free(fighter_path_list_t *list) {
   list->count = 0;
 }
 
-static int fighter_collect_ppm_files(const char *dir_path,
-                                     fighter_path_list_t *out_list) {
+/*
+ * 收集目录下所有 .rgb565 文件并按路径排序。
+ * 参数：
+ *   dir_path：要扫描的动作帧目录。
+ *   out_list：输出的路径列表。
+ */
+static int fighter_collect_rgb565_files(const char *dir_path,
+                                        fighter_path_list_t *out_list) {
   DIR *dir;
   struct dirent *entry;
   fighter_path_list_t list;
@@ -155,7 +195,7 @@ static int fighter_collect_ppm_files(const char *dir_path,
     if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
       continue;
     }
-    if (!fighter_has_ppm_extension(entry->d_name)) {
+    if (!fighter_has_rgb565_extension(entry->d_name)) {
       continue;
     }
 
@@ -199,46 +239,40 @@ static int fighter_collect_ppm_files(const char *dir_path,
   return 0;
 }
 
-static int fighter_read_token(FILE *fp, char *buffer, size_t buffer_size) {
-  int c;
-  size_t i;
-
-  if (!fp || !buffer || buffer_size == 0) {
-    return 0;
-  }
-
-  do {
-    c = fgetc(fp);
-    if (c == '#') {
-      do {
-        c = fgetc(fp);
-      } while (c != '\n' && c != EOF);
-    }
-  } while (isspace(c));
-
-  if (c == EOF) {
-    return 0;
-  }
-
-  i = 0;
-  do {
-    if (i + 1 < buffer_size) {
-      buffer[i++] = (char)c;
-    }
-    c = fgetc(fp);
-  } while (c != EOF && !isspace(c));
-
-  buffer[i] = '\0';
-  return i > 0;
+/*
+ * 从字节数组读取 16 位小端整数。
+ * 参数：
+ *   data：至少包含 2 字节的小端数据地址。
+ */
+static unsigned int fighter_read_le16(const unsigned char *data) {
+  return (unsigned int)data[0] | ((unsigned int)data[1] << 8);
 }
 
-static int fighter_load_ppm(const char *path, fighter_sprite_t *out_sprite) {
+/*
+ * 从字节数组读取 32 位小端整数。
+ * 参数：
+ *   data：至少包含 4 字节的小端数据地址。
+ */
+static unsigned long fighter_read_le32(const unsigned char *data) {
+  return (unsigned long)data[0] | ((unsigned long)data[1] << 8) |
+         ((unsigned long)data[2] << 16) | ((unsigned long)data[3] << 24);
+}
+
+/*
+ * 读取单个 .rgb565 精灵文件。
+ * 参数：
+ *   path：.rgb565 文件路径。
+ *   out_sprite：输出精灵，像素数据为按行存储的 uint16_t RGB565。
+ *
+ * 文件格式使用 16 字节小端头：
+ *   "R565", header_size=16, width, height, pixel_format=1, data_size。
+ */
+static int fighter_load_rgb565(const char *path, fighter_sprite_t *out_sprite) {
   FILE *fp;
-  char token[64];
+  unsigned char header[16];
   int width;
   int height;
-  int max_value;
-  size_t pixel_count;
+  unsigned long data_size;
   size_t bytes_needed;
   unsigned char *pixels;
   fighter_sprite_t sprite;
@@ -254,98 +288,41 @@ static int fighter_load_ppm(const char *path, fighter_sprite_t *out_sprite) {
     return -1;
   }
 
-  if (!fighter_read_token(fp, token, sizeof(token))) {
+  if (fread(header, 1, sizeof(header), fp) != sizeof(header)) {
     fclose(fp);
     return -1;
   }
 
-  if (strcmp(token, "P6") != 0 && strcmp(token, "P3") != 0) {
+  if (memcmp(header, "R565", 4) != 0 || fighter_read_le16(header + 4) != 16 ||
+      fighter_read_le16(header + 10) != 1) {
     fclose(fp);
     return -1;
   }
 
-  if (!fighter_read_token(fp, token, sizeof(token))) {
-    fclose(fp);
-    return -1;
-  }
-  width = atoi(token);
-
-  if (!fighter_read_token(fp, token, sizeof(token))) {
-    fclose(fp);
-    return -1;
-  }
-  height = atoi(token);
-
-  if (!fighter_read_token(fp, token, sizeof(token))) {
-    fclose(fp);
-    return -1;
-  }
-  max_value = atoi(token);
-
-  if (width <= 0 || height <= 0 || max_value <= 0 || max_value > 255) {
+  width = (int)fighter_read_le16(header + 6);
+  height = (int)fighter_read_le16(header + 8);
+  data_size = fighter_read_le32(header + 12);
+  if (width <= 0 || height <= 0) {
     fclose(fp);
     return -1;
   }
 
-  pixel_count = (size_t)width * (size_t)height;
-  bytes_needed = pixel_count * 3U;
+  bytes_needed = (size_t)width * (size_t)height * 2U;
+  if (data_size != (unsigned long)bytes_needed) {
+    fclose(fp);
+    return -1;
+  }
+
   pixels = (unsigned char *)malloc(bytes_needed);
   if (!pixels) {
     fclose(fp);
     return -1;
   }
 
-  if (strcmp(token, "P6") == 0) {
-    /* unreachable because token currently holds max_value, keep structure below */
-  }
-
-  fseek(fp, 0, SEEK_SET);
-
-  if (!fighter_read_token(fp, token, sizeof(token)) ||
-      !fighter_read_token(fp, token, sizeof(token)) ||
-      !fighter_read_token(fp, token, sizeof(token)) ||
-      !fighter_read_token(fp, token, sizeof(token))) {
+  if (fread(pixels, 1, bytes_needed, fp) != bytes_needed) {
     free(pixels);
     fclose(fp);
     return -1;
-  }
-
-  if (strcmp(token, "255") != 0 && atoi(token) <= 0) {
-    free(pixels);
-    fclose(fp);
-    return -1;
-  }
-
-  {
-    long pos = ftell(fp);
-    int magic_p6 = 0;
-    fseek(fp, 0, SEEK_SET);
-    if (fighter_read_token(fp, token, sizeof(token))) {
-      magic_p6 = (strcmp(token, "P6") == 0);
-    }
-    fseek(fp, pos, SEEK_SET);
-
-    if (magic_p6) {
-      int ch = fgetc(fp);
-      if (ch != EOF && !isspace(ch)) {
-        ungetc(ch, fp);
-      }
-      if (fread(pixels, 1, bytes_needed, fp) != bytes_needed) {
-        free(pixels);
-        fclose(fp);
-        return -1;
-      }
-    } else {
-      size_t i;
-      for (i = 0; i < bytes_needed; ++i) {
-        if (!fighter_read_token(fp, token, sizeof(token))) {
-          free(pixels);
-          fclose(fp);
-          return -1;
-        }
-        pixels[i] = (unsigned char)atoi(token);
-      }
-    }
   }
 
   fclose(fp);
@@ -363,6 +340,14 @@ static int fighter_load_ppm(const char *path, fighter_sprite_t *out_sprite) {
   return 0;
 }
 
+/*
+ * 从一个目录加载完整动画片段。
+ * 参数：
+ *   dir_path：保存该动作所有帧的目录。
+ *   ticks_per_frame：每帧持续的游戏 tick 数。
+ *   loop：非 0 表示循环播放，0 表示停在最后一帧。
+ *   out_clip：输出动画片段。
+ */
 static int fighter_load_clip_from_directory(const char *dir_path,
                                             int ticks_per_frame,
                                             int loop,
@@ -378,7 +363,7 @@ static int fighter_load_clip_from_directory(const char *dir_path,
   memset(&paths, 0, sizeof(paths));
   memset(&clip, 0, sizeof(clip));
 
-  if (fighter_collect_ppm_files(dir_path, &paths) != 0 || paths.count <= 0) {
+  if (fighter_collect_rgb565_files(dir_path, &paths) != 0 || paths.count <= 0) {
     fighter_path_list_free(&paths);
     return -1;
   }
@@ -395,7 +380,7 @@ static int fighter_load_clip_from_directory(const char *dir_path,
   clip.loop = loop ? 1 : 0;
 
   for (i = 0; i < paths.count; ++i) {
-    if (fighter_load_ppm(paths.items[i], &clip.frames[i]) != 0) {
+    if (fighter_load_rgb565(paths.items[i], &clip.frames[i]) != 0) {
       fighter_free_clip(&clip);
       fighter_path_list_free(&paths);
       return -1;
@@ -408,6 +393,14 @@ static int fighter_load_clip_from_directory(const char *dir_path,
   return 0;
 }
 
+/*
+ * 拼接基础路径和子路径。
+ * 参数：
+ *   out_path：输出缓冲区。
+ *   out_size：输出缓冲区大小。
+ *   base：基础目录。
+ *   suffix：要追加的相对路径。
+ */
 static int fighter_join_path(char *out_path,
                              size_t out_size,
                              const char *base,
@@ -422,6 +415,11 @@ static int fighter_join_path(char *out_path,
   return 0;
 }
 
+/*
+ * 检查目录是否存在。
+ * 参数：
+ *   path：要检查的目录路径。
+ */
 static int fighter_directory_exists(const char *path) {
   DIR *dir;
 
@@ -438,6 +436,16 @@ static int fighter_directory_exists(const char *path) {
   return 1;
 }
 
+/*
+ * 尝试加载某个动作的动画片段，失败时可用备用动作目录。
+ * 参数：
+ *   base_root：角色素材根目录。
+ *   primary_dir：优先使用的动作目录名。
+ *   fallback_dir：备用动作目录名，可为 NULL。
+ *   ticks_per_frame：每帧持续 tick 数。
+ *   loop：非 0 表示循环播放。
+ *   out_clip：输出动画片段。
+ */
 static int fighter_try_load_clip(const char *base_root,
                                  const char *relative_dir,
                                  int ticks_per_frame,
@@ -458,6 +466,12 @@ static int fighter_try_load_clip(const char *base_root,
   return rc;
 }
 
+/*
+ * 加载一个角色的全部动画片段。
+ * 参数：
+ *   root：角色素材根目录。
+ *   set：输出角色动画集合。
+ */
 static int fighter_load_character_animation_set(
     const char *base_root,
     fighter_character_animation_set_t *set) {
@@ -617,6 +631,12 @@ fighter_select_clip_for_player(const fighter_player_state_t *player,
   }
 }
 
+/*
+ * 重置单个玩家的动画播放状态。
+ * 参数：
+ *   state：要重置的动画状态。
+ *   clip：重置后绑定的当前动画片段。
+ */
 static void fighter_animation_state_reset(fighter_player_animation_state_t *state,
                                           const fighter_animation_clip_t *clip) {
   if (!state) {
@@ -628,6 +648,11 @@ static void fighter_animation_state_reset(fighter_player_animation_state_t *stat
   state->tick_in_frame = 0;
 }
 
+/*
+ * 推进单个玩家当前动画一帧计时。
+ * 参数：
+ *   state：要推进的动画状态。
+ */
 static void fighter_animation_state_advance(
     fighter_player_animation_state_t *state) {
   const fighter_animation_clip_t *clip;
@@ -658,6 +683,11 @@ static void fighter_animation_state_advance(
   }
 }
 
+/*
+ * 使用默认素材路径初始化动画系统。
+ * 参数：
+ *   system：要初始化的动画系统对象。
+ */
 int fighter_animation_system_init(fighter_animation_system_t *system) {
   const char *asset_root = getenv("FIGHTER_ASSET_ROOT");
   char ryu_root[PATH_MAX];
@@ -686,6 +716,13 @@ int fighter_animation_system_init(fighter_animation_system_t *system) {
                                                   FIGHTER_REPO_KEN_ROOT);
 }
 
+/*
+ * 使用指定 Ryu/Ken 根目录初始化动画系统。
+ * 参数：
+ *   system：要初始化的动画系统对象。
+ *   ryu_root：Ryu 素材根目录。
+ *   ken_root：Ken 素材根目录。
+ */
 int fighter_animation_system_init_with_roots(fighter_animation_system_t *system,
                                              const char *ryu_root,
                                              const char *ken_root) {
@@ -714,6 +751,11 @@ int fighter_animation_system_init_with_roots(fighter_animation_system_t *system,
   return 0;
 }
 
+/*
+ * 释放动画系统持有的所有资源。
+ * 参数：
+ *   system：要关闭的动画系统对象。
+ */
 void fighter_animation_system_close(fighter_animation_system_t *system) {
   int i;
 
@@ -729,6 +771,12 @@ void fighter_animation_system_close(fighter_animation_system_t *system) {
   }
 }
 
+/*
+ * 根据游戏状态更新所有玩家的动画片段和帧索引。
+ * 参数：
+ *   system：动画系统对象。
+ *   game：当前游戏状态。
+ */
 void fighter_animation_system_update(fighter_animation_system_t *system,
                                      const fighter_game_t *game) {
   int i;
@@ -753,6 +801,12 @@ void fighter_animation_system_update(fighter_animation_system_t *system,
   }
 }
 
+/*
+ * 取得某个玩家当前应显示的精灵帧。
+ * 参数：
+ *   system：动画系统对象。
+ *   player_index：玩家编号。
+ */
 const fighter_sprite_t *fighter_animation_current_sprite(
     const fighter_animation_system_t *system,
     int player_index) {
@@ -777,6 +831,12 @@ const fighter_sprite_t *fighter_animation_current_sprite(
   return &clip->frames[state->frame_index];
 }
 
+/*
+ * 取得某个玩家当前绑定的动画片段。
+ * 参数：
+ *   system：动画系统对象。
+ *   player_index：玩家编号。
+ */
 const fighter_animation_clip_t *fighter_animation_current_clip(
     const fighter_animation_system_t *system,
     int player_index) {
@@ -788,6 +848,12 @@ const fighter_animation_clip_t *fighter_animation_current_clip(
   return system->players[player_index].current_clip;
 }
 
+/*
+ * 取得某个玩家当前动画帧索引。
+ * 参数：
+ *   system：动画系统对象。
+ *   player_index：玩家编号。
+ */
 int fighter_animation_current_frame_index(
     const fighter_animation_system_t *system,
     int player_index) {

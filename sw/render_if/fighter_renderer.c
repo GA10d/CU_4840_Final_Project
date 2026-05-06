@@ -3,7 +3,6 @@
 #include "fighter_animation.h"
 #include "fighter_vga_mmio.h"
 
-#include <ctype.h>
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -71,6 +70,11 @@ static const fighter_glyph_t k_fighter_glyphs[] = {
     {'Z', {0x1f, 0x01, 0x02, 0x04, 0x08, 0x10, 0x1f}},
 };
 
+/*
+ * 查找内置字体字形。
+ * 参数：
+ *   ch：要查找的字符，小写字母会映射成大写。
+ */
 static const fighter_glyph_t *fighter_find_glyph(char ch) {
   size_t i;
 
@@ -98,8 +102,8 @@ static void fighter_renderer_draw_game_over_fb(
     fighter_renderer_t *renderer,
     const fighter_game_t *game,
     const fighter_animation_system_t *anim_system);
-static int fighter_rgb_image_load_ppm(fighter_rgb_image_t *image,
-                                      const char *path);
+static int fighter_rgb_image_load_rgb565(fighter_rgb_image_t *image,
+                                         const char *path);
 static int fighter_fb_image_build_scaled(fighter_renderer_t *renderer,
                                          const fighter_rgb_image_t *source,
                                          fighter_fb_image_t *scaled);
@@ -108,6 +112,11 @@ static int fighter_fb_image_build_cover(fighter_renderer_t *renderer,
                                         fighter_fb_image_t *scaled);
 #endif
 
+/*
+ * 获取菜单帧 PNG 路径，供非 framebuffer 路径或外部查询使用。
+ * 参数：
+ *   frame_index：菜单动画帧编号，按奇偶选择两张图。
+ */
 const char *fighter_renderer_menu_frame_path(int frame_index) {
   static const char *const k_menu_frames[2] = {
       "../game_assets/ui/menu/menu_frame_0.png",
@@ -121,10 +130,15 @@ const char *fighter_renderer_menu_frame_path(int frame_index) {
 }
 
 #ifdef __linux__
-static const char *fighter_renderer_menu_frame_ppm_path(int frame_index) {
+/*
+ * 获取菜单帧 RGB565 备用路径。
+ * 参数：
+ *   frame_index：菜单动画帧编号，按奇偶选择两张图。
+ */
+static const char *fighter_renderer_menu_frame_rgb565_path(int frame_index) {
   static const char *const k_menu_frames[2] = {
-      "../game_assets/ui/menu/menu_frame_0.ppm",
-      "../game_assets/ui/menu/menu_frame_1.ppm",
+      "../game_assets/ui/menu/menu_frame_0.rgb565",
+      "../game_assets/ui/menu/menu_frame_1.rgb565",
   };
 
   if ((frame_index & 1) == 0) {
@@ -135,6 +149,13 @@ static const char *fighter_renderer_menu_frame_ppm_path(int frame_index) {
 #endif
 
 #ifdef __linux__
+/*
+ * 从环境变量解析物理地址。
+ * 参数：
+ *   env_name：环境变量名。
+ *   default_value：环境变量不存在时使用的默认地址。
+ *   value_out：输出解析后的地址。
+ */
 static int fighter_renderer_parse_env_address(const char *env_name,
                                               off_t default_value,
                                               off_t *value_out) {
@@ -162,6 +183,16 @@ static int fighter_renderer_parse_env_address(const char *env_name,
   return 0;
 }
 
+/*
+ * 把物理地址映射到进程地址空间。
+ * 参数：
+ *   mem_fd：已打开的 /dev/mem 文件描述符。
+ *   physical_addr：要映射的物理地址。
+ *   span：需要访问的字节范围。
+ *   map_base：输出 mmap 返回的页对齐基址。
+ *   map_length：输出实际映射长度。
+ *   register_base：输出带页内偏移后的寄存器指针。
+ */
 static int fighter_renderer_map_physical(int mem_fd,
                                          off_t physical_addr,
                                          size_t span,
@@ -201,6 +232,12 @@ static int fighter_renderer_map_physical(int mem_fd,
   return 0;
 }
 
+/*
+ * 解除一个 mmap 区域。
+ * 参数：
+ *   map_base：保存映射基址的指针，会被清空。
+ *   map_length：保存映射长度的指针，会被清零。
+ */
 static void fighter_renderer_unmap_region(void **map_base,
                                           unsigned long *map_length) {
   if (!map_base || !map_length || !*map_base || *map_length == 0) {
@@ -212,6 +249,11 @@ static void fighter_renderer_unmap_region(void **map_base,
   *map_length = 0;
 }
 
+/*
+ * 使能 HPS 到 FPGA 的 bridge。
+ * 参数：
+ *   renderer：包含 bridge reset 寄存器映射的渲染器。
+ */
 static int fighter_renderer_enable_fpga_bridges(fighter_renderer_t *renderer) {
   uint32_t value;
 
@@ -225,8 +267,14 @@ static int fighter_renderer_enable_fpga_bridges(fighter_renderer_t *renderer) {
   return 0;
 }
 
-static int fighter_renderer_load_asset_ppm(fighter_rgb_image_t *image,
-                                           const char *relative_path) {
+/*
+ * 按素材根目录搜索并加载 .rgb565 图片。
+ * 参数：
+ *   image：输出图片对象。
+ *   relative_path：相对 game_assets 的素材路径。
+ */
+static int fighter_renderer_load_asset_rgb565(fighter_rgb_image_t *image,
+                                              const char *relative_path) {
   static const char *const k_asset_roots[] = {
       NULL,
       "/root/game_assets",
@@ -252,7 +300,7 @@ static int fighter_renderer_load_asset_ppm(fighter_rgb_image_t *image,
         (int)sizeof(path)) {
       continue;
     }
-    if (fighter_rgb_image_load_ppm(image, path) == 0) {
+    if (fighter_rgb_image_load_rgb565(image, path) == 0) {
       return 0;
     }
   }
@@ -260,6 +308,11 @@ static int fighter_renderer_load_asset_ppm(fighter_rgb_image_t *image,
   return -1;
 }
 
+/*
+ * 加载菜单和背景图片，并预构建 framebuffer 缓存。
+ * 参数：
+ *   renderer：要填充素材缓存的渲染器。
+ */
 static void fighter_renderer_load_assets(fighter_renderer_t *renderer) {
   int i;
 
@@ -270,12 +323,12 @@ static void fighter_renderer_load_assets(fighter_renderer_t *renderer) {
   for (i = 0; i < 2; ++i) {
     char relative_path[64];
 
-    snprintf(relative_path, sizeof(relative_path), "ui/menu/menu_frame_%d.ppm", i);
-    (void)fighter_renderer_load_asset_ppm(&renderer->menu_frames[i],
-                                          relative_path);
+    snprintf(relative_path, sizeof(relative_path), "ui/menu/menu_frame_%d.rgb565", i);
+    (void)fighter_renderer_load_asset_rgb565(&renderer->menu_frames[i],
+                                             relative_path);
     if (!renderer->menu_frames[i].pixels) {
-      (void)fighter_rgb_image_load_ppm(&renderer->menu_frames[i],
-                                       fighter_renderer_menu_frame_ppm_path(i));
+      (void)fighter_rgb_image_load_rgb565(
+          &renderer->menu_frames[i], fighter_renderer_menu_frame_rgb565_path(i));
     }
     if (renderer->menu_frames[i].pixels) {
       (void)fighter_fb_image_build_scaled(renderer, &renderer->menu_frames[i],
@@ -283,13 +336,18 @@ static void fighter_renderer_load_assets(fighter_renderer_t *renderer) {
     }
   }
 
-  if (fighter_renderer_load_asset_ppm(&renderer->background_image,
-                                      "background/background.ppm") == 0) {
+  if (fighter_renderer_load_asset_rgb565(&renderer->background_image,
+                                         "background/background.rgb565") == 0) {
     (void)fighter_fb_image_build_cover(renderer, &renderer->background_image,
                                        &renderer->background_cache);
   }
 }
 
+/*
+ * 关闭 MMIO 渲染后端持有的映射和文件描述符。
+ * 参数：
+ *   renderer：要关闭 MMIO 资源的渲染器。
+ */
 static void fighter_renderer_close_mmio(fighter_renderer_t *renderer) {
   if (!renderer) {
     return;
@@ -307,6 +365,11 @@ static void fighter_renderer_close_mmio(fighter_renderer_t *renderer) {
   renderer->vga_bridge_reset_reg = NULL;
 }
 
+/*
+ * 为 MMIO VGA 后端准备 320x240 RGB565 后备缓冲。
+ * 参数：
+ *   renderer：要初始化 framebuffer 字段的渲染器。
+ */
 static int fighter_renderer_prepare_mmio_framebuffer(
     fighter_renderer_t *renderer) {
   if (!renderer) {
@@ -330,6 +393,11 @@ static int fighter_renderer_prepare_mmio_framebuffer(
   return 0;
 }
 
+/*
+ * 初始化自定义 VGA MMIO 后端。
+ * 参数：
+ *   renderer：要初始化的渲染器。
+ */
 static int fighter_renderer_init_mmio(fighter_renderer_t *renderer) {
   off_t bridge_reset_addr;
   off_t mmio_addr;
@@ -434,6 +502,11 @@ static int fighter_renderer_init_mmio(fighter_renderer_t *renderer) {
   return 0;
 }
 
+/*
+ * 把后备缓冲打包写入 VGA MMIO framebuffer 窗口。
+ * 参数：
+ *   renderer：已初始化 MMIO 后端的渲染器。
+ */
 static void fighter_renderer_flush_mmio_frame(fighter_renderer_t *renderer) {
   const unsigned char *src;
   volatile uint32_t *dst;
@@ -469,6 +542,13 @@ static void fighter_renderer_flush_mmio_frame(fighter_renderer_t *renderer) {
       FIGHTER_VGA_MMIO_CONTROL_SWAP_REQUEST;
 }
 
+/*
+ * 使用 MMIO 后端绘制一帧完整游戏画面。
+ * 参数：
+ *   renderer：MMIO 渲染器。
+ *   game：当前游戏状态。
+ *   anim_system：动画系统，可为角色提供当前帧。
+ */
 static void fighter_renderer_draw_mmio(
     fighter_renderer_t *renderer,
     const fighter_game_t *game,
@@ -494,6 +574,11 @@ static void fighter_renderer_draw_mmio(
 }
 #endif
 
+/*
+ * 初始化渲染器选项为默认值。
+ * 参数：
+ *   options：要初始化的选项结构。
+ */
 void fighter_renderer_options_init(fighter_renderer_options_t *options) {
   if (!options) {
     return;
@@ -505,6 +590,11 @@ void fighter_renderer_options_init(fighter_renderer_options_t *options) {
   options->framebuffer_path = "/dev/fb0";
 }
 
+/*
+ * 把游戏状态枚举转成控制台文本。
+ * 参数：
+ *   state：游戏状态枚举值。
+ */
 static const char *fighter_renderer_game_state_name(fighter_game_state_t state) {
   switch (state) {
     case FIGHTER_GAME_STATE_MENU:
@@ -518,6 +608,11 @@ static const char *fighter_renderer_game_state_name(fighter_game_state_t state) 
   }
 }
 
+/*
+ * 把角色视觉状态枚举转成控制台文本。
+ * 参数：
+ *   state：角色视觉状态枚举值。
+ */
 static const char *fighter_renderer_visual_state_name(
     fighter_visual_state_t state) {
   switch (state) {
@@ -548,6 +643,11 @@ static const char *fighter_renderer_visual_state_name(
   }
 }
 
+/*
+ * 把攻击阶段枚举转成控制台文本。
+ * 参数：
+ *   phase：攻击阶段枚举值。
+ */
 static const char *fighter_renderer_attack_phase_name(
     fighter_attack_phase_t phase) {
   switch (phase) {
@@ -568,6 +668,11 @@ static const char *fighter_renderer_attack_phase_name(
   }
 }
 
+/*
+ * 把胜者枚举转成控制台文本。
+ * 参数：
+ *   winner：胜者枚举值。
+ */
 static const char *fighter_renderer_winner_name(fighter_winner_t winner) {
   switch (winner) {
     case FIGHTER_WINNER_PLAYER1:
@@ -582,6 +687,11 @@ static const char *fighter_renderer_winner_name(fighter_winner_t winner) {
   }
 }
 
+/*
+ * 把结束原因枚举转成控制台文本。
+ * 参数：
+ *   reason：结束原因枚举值。
+ */
 static const char *fighter_renderer_finish_reason_name(
     fighter_finish_reason_t reason) {
   switch (reason) {
@@ -600,12 +710,24 @@ static const char *fighter_renderer_finish_reason_name(
   }
 }
 
+/*
+ * 判断控制台输出里的玩家状态是否发生变化。
+ * 参数：
+ *   lhs：旧玩家状态。
+ *   rhs：新玩家状态。
+ */
 static int fighter_renderer_console_player_changed(
     const fighter_player_state_t *lhs,
     const fighter_player_state_t *rhs) {
   return memcmp(lhs, rhs, sizeof(*lhs)) != 0;
 }
 
+/*
+ * 打印单个玩家的控制台调试状态。
+ * 参数：
+ *   label：玩家标签文本。
+ *   player：要打印的玩家状态。
+ */
 static void fighter_renderer_print_console_player(
     const char *label,
     const fighter_player_state_t *player) {
@@ -622,6 +744,11 @@ static void fighter_renderer_print_console_player(
 }
 
 #ifdef __linux__
+/*
+ * 获取当前应写入的 framebuffer 目标缓冲。
+ * 参数：
+ *   renderer：渲染器对象。
+ */
 static unsigned char *fighter_fb_target_data(fighter_renderer_t *renderer) {
   if (!renderer) {
     return NULL;
@@ -632,6 +759,14 @@ static unsigned char *fighter_fb_target_data(fighter_renderer_t *renderer) {
   return (unsigned char *)renderer->fb_data;
 }
 
+/*
+ * 把 8 位 RGB 颜色转换为当前 framebuffer 使用的颜色值。
+ * 参数：
+ *   renderer：提供 bpp 信息的渲染器。
+ *   r：红色通道，0-255。
+ *   g：绿色通道，0-255。
+ *   b：蓝色通道，0-255。
+ */
 static unsigned int fighter_fb_color(fighter_renderer_t *renderer,
                                      unsigned char r,
                                      unsigned char g,
@@ -650,6 +785,40 @@ static unsigned int fighter_fb_color(fighter_renderer_t *renderer,
   return ((unsigned int)r << 16) | ((unsigned int)g << 8) | (unsigned int)b;
 }
 
+/*
+ * 把 RGB565 像素转换为当前 framebuffer 使用的颜色值。
+ * 参数：
+ *   renderer：提供目标 bpp 信息的渲染器。
+ *   rgb565：源 RGB565 像素值。
+ */
+static unsigned int fighter_rgb565_to_fb_color(fighter_renderer_t *renderer,
+                                               unsigned int rgb565) {
+  unsigned char r;
+  unsigned char g;
+  unsigned char b;
+
+  /* MMIO 和 16bpp framebuffer 本来就需要小端 RGB565。 */
+  if (renderer && renderer->fb_bpp == 16) {
+    return rgb565;
+  }
+
+  /* 其它 framebuffer 模式需要展开成 8 位 RGB 通道。 */
+  r = (unsigned char)(((rgb565 >> 11) & 0x1fU) << 3);
+  g = (unsigned char)(((rgb565 >> 5) & 0x3fU) << 2);
+  b = (unsigned char)((rgb565 & 0x1fU) << 3);
+  r = (unsigned char)(r | (r >> 5));
+  g = (unsigned char)(g | (g >> 6));
+  b = (unsigned char)(b | (b >> 5));
+  return fighter_fb_color(renderer, r, g, b);
+}
+
+/*
+ * 把颜色值写入目标像素地址。
+ * 参数：
+ *   renderer：提供目标 bpp 信息的渲染器。
+ *   dst：目标像素地址。
+ *   color：已经适配当前 framebuffer 的颜色值。
+ */
 static void fighter_fb_store_color(fighter_renderer_t *renderer,
                                    unsigned char *dst,
                                    unsigned int color) {
@@ -670,6 +839,14 @@ static void fighter_fb_store_color(fighter_renderer_t *renderer,
   }
 }
 
+/*
+ * 在 framebuffer 中写入一个像素。
+ * 参数：
+ *   renderer：渲染器对象。
+ *   x：目标 x 坐标。
+ *   y：目标 y 坐标。
+ *   color：已经适配当前 framebuffer 的颜色值。
+ */
 static void fighter_fb_put_pixel(fighter_renderer_t *renderer,
                                  int x,
                                  int y,
@@ -700,6 +877,13 @@ static void fighter_fb_put_pixel(fighter_renderer_t *renderer,
   fighter_fb_store_color(renderer, dst, color);
 }
 
+/*
+ * 按源/目标范围缩放一个坐标。
+ * 参数：
+ *   value：源坐标或长度。
+ *   dst_extent：目标范围大小。
+ *   src_extent：源范围大小。
+ */
 static int fighter_scale_axis(int value, int dst_extent, int src_extent) {
   if (src_extent <= 0) {
     return 0;
@@ -707,11 +891,24 @@ static int fighter_scale_axis(int value, int dst_extent, int src_extent) {
   return (int)(((long long)value * dst_extent) / src_extent);
 }
 
+/*
+ * 缩放尺寸，并保证结果至少为 1。
+ * 参数：
+ *   value：源尺寸。
+ *   dst_extent：目标范围大小。
+ *   src_extent：源范围大小。
+ */
 static int fighter_scale_size_axis(int value, int dst_extent, int src_extent) {
   int out = fighter_scale_axis(value, dst_extent, src_extent);
   return out > 0 ? out : 1;
 }
 
+/*
+ * 根据 framebuffer 高度缩放文字尺寸。
+ * 参数：
+ *   renderer：提供 framebuffer 高度的渲染器。
+ *   base_scale：基准文字缩放倍数。
+ */
 static int fighter_scale_text_size(fighter_renderer_t *renderer, int base_scale) {
   int s;
 
@@ -723,6 +920,16 @@ static int fighter_scale_text_size(fighter_renderer_t *renderer, int base_scale)
   return s > 0 ? s : 1;
 }
 
+/*
+ * 填充一个矩形区域。
+ * 参数：
+ *   renderer：渲染器对象。
+ *   x：矩形左上角 x 坐标。
+ *   y：矩形左上角 y 坐标。
+ *   w：矩形宽度。
+ *   h：矩形高度。
+ *   color：填充颜色。
+ */
 static void fighter_fb_fill_rect(fighter_renderer_t *renderer,
                                  int x,
                                  int y,
@@ -776,6 +983,16 @@ static void fighter_fb_fill_rect(fighter_renderer_t *renderer,
   }
 }
 
+/*
+ * 绘制一个内置 5x7 字符。
+ * 参数：
+ *   renderer：渲染器对象。
+ *   x：字符左上角 x 坐标。
+ *   y：字符左上角 y 坐标。
+ *   ch：要绘制的字符。
+ *   scale：像素放大倍数。
+ *   color：文字颜色。
+ */
 static void fighter_fb_draw_char(fighter_renderer_t *renderer,
                                  int x,
                                  int y,
@@ -801,6 +1018,16 @@ static void fighter_fb_draw_char(fighter_renderer_t *renderer,
   }
 }
 
+/*
+ * 绘制一段左对齐文本。
+ * 参数：
+ *   renderer：渲染器对象。
+ *   x：文本起始 x 坐标。
+ *   y：文本起始 y 坐标。
+ *   text：要绘制的字符串。
+ *   scale：像素放大倍数。
+ *   color：文字颜色。
+ */
 static void fighter_fb_draw_text(fighter_renderer_t *renderer,
                                  int x,
                                  int y,
@@ -821,6 +1048,16 @@ static void fighter_fb_draw_text(fighter_renderer_t *renderer,
   }
 }
 
+/*
+ * 绘制水平居中的文本。
+ * 参数：
+ *   renderer：渲染器对象。
+ *   center_x：文本中心 x 坐标。
+ *   y：文本顶部 y 坐标。
+ *   text：要绘制的字符串。
+ *   scale：像素放大倍数。
+ *   color：文字颜色。
+ */
 static void fighter_fb_draw_centered_text(fighter_renderer_t *renderer,
                                           int center_x,
                                           int y,
@@ -837,6 +1074,11 @@ static void fighter_fb_draw_centered_text(fighter_renderer_t *renderer,
   fighter_fb_draw_text(renderer, center_x - text_width / 2, y, text, scale, color);
 }
 
+/*
+ * 释放并清空 RGB565 图片对象。
+ * 参数：
+ *   image：要重置的图片对象。
+ */
 static void fighter_rgb_image_reset(fighter_rgb_image_t *image) {
   if (!image) {
     return;
@@ -848,6 +1090,11 @@ static void fighter_rgb_image_reset(fighter_rgb_image_t *image) {
   image->height = 0;
 }
 
+/*
+ * 释放并清空已转换成 framebuffer 格式的缓存图片。
+ * 参数：
+ *   image：要重置的 framebuffer 图片对象。
+ */
 static void fighter_fb_image_reset(fighter_fb_image_t *image) {
   if (!image) {
     return;
@@ -861,60 +1108,41 @@ static void fighter_fb_image_reset(fighter_fb_image_t *image) {
   image->data_length = 0;
 }
 
-static int fighter_ppm_read_token(FILE *stream, char *buffer, size_t buffer_size) {
-  int ch;
-  size_t length;
-
-  if (!stream || !buffer || buffer_size == 0) {
-    return -1;
-  }
-
-  ch = fgetc(stream);
-  while (ch != EOF) {
-    if (isspace((unsigned char)ch)) {
-      ch = fgetc(stream);
-      continue;
-    }
-    if (ch == '#') {
-      do {
-        ch = fgetc(stream);
-      } while (ch != EOF && ch != '\n');
-      ch = fgetc(stream);
-      continue;
-    }
-    break;
-  }
-
-  if (ch == EOF) {
-    return -1;
-  }
-
-  length = 0;
-  while (ch != EOF && !isspace((unsigned char)ch) && ch != '#') {
-    if (length + 1 >= buffer_size) {
-      return -1;
-    }
-    buffer[length++] = (char)ch;
-    ch = fgetc(stream);
-  }
-  buffer[length] = '\0';
-
-  if (ch == '#') {
-    do {
-      ch = fgetc(stream);
-    } while (ch != EOF && ch != '\n');
-  }
-
-  return length == 0 ? -1 : 0;
+/*
+ * 从字节数组读取 16 位小端整数。
+ * 参数：
+ *   data：至少包含 2 字节的小端数据地址。
+ */
+static unsigned int fighter_read_le16(const unsigned char *data) {
+  return (unsigned int)data[0] | ((unsigned int)data[1] << 8);
 }
 
-static int fighter_rgb_image_load_ppm(fighter_rgb_image_t *image, const char *path) {
+/*
+ * 从字节数组读取 32 位小端整数。
+ * 参数：
+ *   data：至少包含 4 字节的小端数据地址。
+ */
+static unsigned long fighter_read_le32(const unsigned char *data) {
+  return (unsigned long)data[0] | ((unsigned long)data[1] << 8) |
+         ((unsigned long)data[2] << 16) | ((unsigned long)data[3] << 24);
+}
+
+/*
+ * 读取 .rgb565 图片文件。
+ * 参数：
+ *   image：输出图片对象，像素数据为按行存储的 uint16_t RGB565。
+ *   path：.rgb565 文件路径。
+ *
+ * 文件和转换脚本输出一致：16 字节头后接像素数据。
+ */
+static int fighter_rgb_image_load_rgb565(fighter_rgb_image_t *image,
+                                         const char *path) {
   FILE *stream;
-  char token[32];
+  unsigned char header[16];
   int width;
   int height;
-  int max_value;
-  size_t pixel_count;
+  unsigned long data_size;
+  size_t bytes_needed;
   unsigned char *pixels;
 
   if (!image || !path) {
@@ -926,37 +1154,38 @@ static int fighter_rgb_image_load_ppm(fighter_rgb_image_t *image, const char *pa
     return -1;
   }
 
-  if (fighter_ppm_read_token(stream, token, sizeof(token)) != 0 ||
-      strcmp(token, "P6") != 0 ||
-      fighter_ppm_read_token(stream, token, sizeof(token)) != 0) {
-    fclose(stream);
-    return -1;
-  }
-  width = atoi(token);
-  if (fighter_ppm_read_token(stream, token, sizeof(token)) != 0) {
-    fclose(stream);
-    return -1;
-  }
-  height = atoi(token);
-  if (fighter_ppm_read_token(stream, token, sizeof(token)) != 0) {
-    fclose(stream);
-    return -1;
-  }
-  max_value = atoi(token);
-
-  if (width <= 0 || height <= 0 || max_value != 255) {
+  if (fread(header, 1, sizeof(header), stream) != sizeof(header)) {
     fclose(stream);
     return -1;
   }
 
-  pixel_count = (size_t)width * (size_t)height * 3U;
-  pixels = (unsigned char *)malloc(pixel_count);
+  if (memcmp(header, "R565", 4) != 0 || fighter_read_le16(header + 4) != 16 ||
+      fighter_read_le16(header + 10) != 1) {
+    fclose(stream);
+    return -1;
+  }
+
+  width = (int)fighter_read_le16(header + 6);
+  height = (int)fighter_read_le16(header + 8);
+  data_size = fighter_read_le32(header + 12);
+  if (width <= 0 || height <= 0) {
+    fclose(stream);
+    return -1;
+  }
+
+  bytes_needed = (size_t)width * (size_t)height * 2U;
+  if (data_size != (unsigned long)bytes_needed) {
+    fclose(stream);
+    return -1;
+  }
+
+  pixels = (unsigned char *)malloc(bytes_needed);
   if (!pixels) {
     fclose(stream);
     return -1;
   }
 
-  if (fread(pixels, 1, pixel_count, stream) != pixel_count) {
+  if (fread(pixels, 1, bytes_needed, stream) != bytes_needed) {
     free(pixels);
     fclose(stream);
     return -1;
@@ -970,6 +1199,12 @@ static int fighter_rgb_image_load_ppm(fighter_rgb_image_t *image, const char *pa
   return 0;
 }
 
+/*
+ * 等比例绘制一张 RGB565 图片，完整放入屏幕内。
+ * 参数：
+ *   renderer：渲染器对象。
+ *   image：要绘制的 RGB565 图片。
+ */
 static void fighter_fb_draw_rgb_image_fit(fighter_renderer_t *renderer,
                                           const fighter_rgb_image_t *image) {
   int draw_width;
@@ -1000,19 +1235,26 @@ static void fighter_fb_draw_rgb_image_fit(fighter_renderer_t *renderer,
   for (y = 0; y < draw_height; ++y) {
     int src_y = (int)(((long long)y * image->height) / draw_height);
     const unsigned char *src_row =
-        image->pixels + (size_t)src_y * (size_t)image->width * 3U;
+        image->pixels + (size_t)src_y * (size_t)image->width * 2U;
     int x;
 
     for (x = 0; x < draw_width; ++x) {
       int src_x = (int)(((long long)x * image->width) / draw_width);
-      const unsigned char *src_pixel = src_row + (size_t)src_x * 3U;
+      const unsigned char *src_pixel = src_row + (size_t)src_x * 2U;
       fighter_fb_put_pixel(renderer, draw_x + x, draw_y + y,
-                           fighter_fb_color(renderer, src_pixel[0], src_pixel[1],
-                                            src_pixel[2]));
+                           fighter_rgb565_to_fb_color(
+                               renderer, fighter_read_le16(src_pixel)));
     }
   }
 }
 
+/*
+ * 把 RGB565 图片等比例缩放成 framebuffer 缓存。
+ * 参数：
+ *   renderer：提供目标 framebuffer 尺寸和格式的渲染器。
+ *   source：源 RGB565 图片。
+ *   scaled：输出缓存图片。
+ */
 static int fighter_fb_image_build_scaled(fighter_renderer_t *renderer,
                                          const fighter_rgb_image_t *source,
                                          fighter_fb_image_t *scaled) {
@@ -1064,14 +1306,14 @@ static int fighter_fb_image_build_scaled(fighter_renderer_t *renderer,
   for (y = 0; y < draw_height; ++y) {
     int src_y = (int)(((long long)y * source->height) / draw_height);
     const unsigned char *src_row =
-        source->pixels + (size_t)src_y * (size_t)source->width * 3U;
+        source->pixels + (size_t)src_y * (size_t)source->width * 2U;
     int x;
 
     for (x = 0; x < draw_width; ++x) {
       int src_x = (int)(((long long)x * source->width) / draw_width);
-      const unsigned char *src_pixel = src_row + (size_t)src_x * 3U;
+      const unsigned char *src_pixel = src_row + (size_t)src_x * 2U;
       unsigned int color =
-          fighter_fb_color(renderer, src_pixel[0], src_pixel[1], src_pixel[2]);
+          fighter_rgb565_to_fb_color(renderer, fighter_read_le16(src_pixel));
       unsigned char *dst =
           scaled->pixels + (size_t)(draw_y + y) * (size_t)scaled->stride +
           (size_t)(draw_x + x) * (size_t)bytes_per_pixel;
@@ -1082,6 +1324,13 @@ static int fighter_fb_image_build_scaled(fighter_renderer_t *renderer,
   return 0;
 }
 
+/*
+ * 把 RGB565 图片按 cover 方式裁剪缩放成 framebuffer 缓存。
+ * 参数：
+ *   renderer：提供目标 framebuffer 尺寸和格式的渲染器。
+ *   source：源 RGB565 图片。
+ *   scaled：输出缓存图片。
+ */
 static int fighter_fb_image_build_cover(fighter_renderer_t *renderer,
                                         const fighter_rgb_image_t *source,
                                         fighter_fb_image_t *scaled) {
@@ -1142,14 +1391,14 @@ static int fighter_fb_image_build_cover(fighter_renderer_t *renderer,
   for (y = 0; y < renderer->fb_height; ++y) {
     int src_y = crop_y + (int)(((long long)y * crop_h) / renderer->fb_height);
     const unsigned char *src_row =
-        source->pixels + (size_t)src_y * (size_t)source->width * 3U;
+        source->pixels + (size_t)src_y * (size_t)source->width * 2U;
     int x;
 
     for (x = 0; x < renderer->fb_width; ++x) {
       int src_x = crop_x + (int)(((long long)x * crop_w) / renderer->fb_width);
-      const unsigned char *src_pixel = src_row + (size_t)src_x * 3U;
+      const unsigned char *src_pixel = src_row + (size_t)src_x * 2U;
       unsigned int color =
-          fighter_fb_color(renderer, src_pixel[0], src_pixel[1], src_pixel[2]);
+          fighter_rgb565_to_fb_color(renderer, fighter_read_le16(src_pixel));
       unsigned char *dst =
           scaled->pixels + (size_t)y * (size_t)scaled->stride +
           (size_t)x * (size_t)bytes_per_pixel;
@@ -1160,6 +1409,12 @@ static int fighter_fb_image_build_cover(fighter_renderer_t *renderer,
   return 0;
 }
 
+/*
+ * 直接复制已经转换成 framebuffer 格式的缓存图片。
+ * 参数：
+ *   renderer：渲染器对象。
+ *   image：已匹配 framebuffer 格式和尺寸的缓存图片。
+ */
 static void fighter_fb_draw_cached_image(fighter_renderer_t *renderer,
                                          const fighter_fb_image_t *image) {
   if (!renderer || !image || !image->pixels) {
@@ -1177,6 +1432,11 @@ static void fighter_fb_draw_cached_image(fighter_renderer_t *renderer,
   }
 }
 
+/*
+ * 把后备缓冲提交到 Linux framebuffer。
+ * 参数：
+ *   renderer：包含后备缓冲和目标 framebuffer 的渲染器。
+ */
 static void fighter_fb_present(fighter_renderer_t *renderer) {
   if (!renderer || !renderer->fb_backbuffer || !renderer->fb_data) {
     return;
@@ -1185,11 +1445,31 @@ static void fighter_fb_present(fighter_renderer_t *renderer) {
   memcpy(renderer->fb_data, renderer->fb_backbuffer, renderer->fb_backbuffer_length);
 }
 
+/*
+ * 清空 framebuffer 为指定颜色。
+ * 参数：
+ *   renderer：渲染器对象。
+ *   color：清屏颜色。
+ */
 static void fighter_fb_clear(fighter_renderer_t *renderer, unsigned int color) {
   fighter_fb_fill_rect(renderer, 0, 0, renderer->fb_width, renderer->fb_height,
                        color);
 }
 
+/*
+ * 绘制一条血量条。
+ * 参数：
+ *   renderer：渲染器对象。
+ *   x：血条左上角 x 坐标。
+ *   y：血条左上角 y 坐标。
+ *   w：血条宽度。
+ *   h：血条高度。
+ *   hp：当前血量。
+ *   max_hp：最大血量。
+ *   fg：前景填充颜色。
+ *   bg：背景颜色。
+ *   border：边框颜色。
+ */
 static void fighter_fb_draw_hp_bar(fighter_renderer_t *renderer,
                                    int x,
                                    int y,
@@ -1220,6 +1500,17 @@ static void fighter_fb_draw_hp_bar(fighter_renderer_t *renderer,
   fighter_fb_fill_rect(renderer, x + 2, y + 2, fill_w, h - 4, fg);
 }
 
+/*
+ * 绘制一个 RGB565 精灵，0x0000 像素按透明处理。
+ * 参数：
+ *   renderer：渲染器对象。
+ *   sprite：要绘制的精灵。
+ *   dst_x：目标左上角 x 坐标。
+ *   dst_y：目标左上角 y 坐标。
+ *   dst_w：目标绘制宽度。
+ *   dst_h：目标绘制高度。
+ *   flip_x：非 0 表示水平翻转。
+ */
 static void fighter_fb_draw_sprite(fighter_renderer_t *renderer,
                                    const fighter_sprite_t *sprite,
                                    int dst_x,
@@ -1259,7 +1550,7 @@ static void fighter_fb_draw_sprite(fighter_renderer_t *renderer,
       int src_x;
       int px = dst_x + x;
       const unsigned char *src_pixel;
-      unsigned int packed;
+      unsigned int rgb565;
       unsigned char *dst_pixel;
 
       if (px < 0 || px >= renderer->fb_width) {
@@ -1274,20 +1565,30 @@ static void fighter_fb_draw_sprite(fighter_renderer_t *renderer,
 
       src_pixel =
           sprite->pixels +
-          ((size_t)src_y * (size_t)sprite->width + (size_t)src_x) * 3U;
+          ((size_t)src_y * (size_t)sprite->width + (size_t)src_x) * 2U;
+      rgb565 = fighter_read_le16(src_pixel);
 
-      if (src_pixel[0] == 0 && src_pixel[1] == 0 && src_pixel[2] == 0) {
+      /* 保留原来的规则：源素材里的纯黑像素视为透明。 */
+      if (rgb565 == 0U) {
         continue;
       }
 
-      packed = fighter_fb_color(renderer, src_pixel[0], src_pixel[1], src_pixel[2]);
       dst_pixel = target + (size_t)py * (size_t)renderer->fb_stride +
                   (size_t)px * (size_t)bytes_per_pixel;
-      fighter_fb_store_color(renderer, dst_pixel, packed);
+      fighter_fb_store_color(renderer, dst_pixel,
+                             fighter_rgb565_to_fb_color(renderer, rgb565));
     }
   }
 }
 
+/*
+ * 在 framebuffer 上绘制一个玩家。
+ * 参数：
+ *   renderer：渲染器对象。
+ *   game：当前游戏状态。
+ *   anim_system：动画系统，用于取得当前角色帧。
+ *   player_index：玩家编号。
+ */
 static void fighter_renderer_draw_player_fb(
     fighter_renderer_t *renderer,
     const fighter_game_t *game,
@@ -1316,7 +1617,7 @@ static void fighter_renderer_draw_player_fb(
     return;
   }
 
-  /* Hitbox position in framebuffer coordinates */
+  /* 把游戏坐标里的碰撞框换算到 framebuffer 坐标。 */
   hitbox_x =
       fighter_scale_axis(player->x, renderer->fb_width, game->config.screen_width);
   hitbox_y =
@@ -1329,8 +1630,8 @@ static void fighter_renderer_draw_player_fb(
                               game->config.screen_height);
 
   /*
-   * Draw sprite at its own native size mapped only by framebuffer/game resolution.
-   * Do NOT stretch it to hitbox size.
+   * 精灵只按游戏分辨率到 framebuffer 的比例缩放，
+   * 不强行拉伸到碰撞框大小。
    */
   draw_w =
       fighter_scale_size_axis(sprite->width, renderer->fb_width, game->config.screen_width);
@@ -1338,8 +1639,8 @@ static void fighter_renderer_draw_player_fb(
       fighter_scale_size_axis(sprite->height, renderer->fb_height, game->config.screen_height);
 
   /*
-   * Bottom-center align sprite to the hitbox.
-   * This keeps feet near the ground and keeps the hitbox roughly under the art.
+   * 精灵底部居中对齐到碰撞框，让脚部贴近地面，
+   * 同时让碰撞框大致位于美术图下方。
    */
   draw_x = hitbox_x + (hitbox_w - draw_w) / 2;
   draw_y = hitbox_y + hitbox_h - draw_h;
@@ -1348,6 +1649,13 @@ static void fighter_renderer_draw_player_fb(
   fighter_fb_draw_sprite(renderer, sprite, draw_x, draw_y, draw_w, draw_h, flip_x);
 }
 
+/*
+ * 取得当前应绘制的火球精灵帧。
+ * 参数：
+ *   anim_system：动画系统。
+ *   character_id：发射火球的角色。
+ *   anim_ticks：火球已播放的动画 tick。
+ */
 static const fighter_sprite_t *fighter_renderer_fireball_sprite(
     const fighter_animation_system_t *anim_system,
     fighter_character_id_t character_id,
@@ -1374,6 +1682,14 @@ static const fighter_sprite_t *fighter_renderer_fireball_sprite(
   return &clip->frames[frame_index];
 }
 
+/*
+ * 在 framebuffer 上绘制一个飞行道具。
+ * 参数：
+ *   renderer：渲染器对象。
+ *   game：当前游戏状态。
+ *   anim_system：动画系统，用于取得火球帧。
+ *   projectile：要绘制的飞行道具状态。
+ */
 static void fighter_renderer_draw_projectile_fb(
     fighter_renderer_t *renderer,
     const fighter_game_t *game,
@@ -1420,6 +1736,12 @@ static void fighter_renderer_draw_projectile_fb(
   fighter_fb_draw_sprite(renderer, sprite, draw_x, draw_y, draw_w, draw_h, flip_x);
 }
 
+/*
+ * 绘制菜单画面。
+ * 参数：
+ *   renderer：渲染器对象。
+ *   game：当前游戏状态，用于菜单动画计时。
+ */
 static void fighter_renderer_draw_menu_fb(fighter_renderer_t *renderer,
                                           const fighter_game_t *game) {
   fighter_fb_image_t *cached_image;
@@ -1501,6 +1823,14 @@ static void fighter_renderer_draw_menu_fb(fighter_renderer_t *renderer,
                                 "PRESS ANY KEY", prompt_scale, text_color);
 }
 
+/*
+ * 绘制对战场景画面。
+ * 参数：
+ *   renderer：渲染器对象。
+ *   game：当前游戏状态。
+ *   anim_system：动画系统，可为 NULL，为 NULL 时只画背景和 UI。
+ *   draw_overlay：预留覆盖层开关，目前未使用。
+ */
 static void fighter_renderer_draw_playfield_fb(
     fighter_renderer_t *renderer,
     const fighter_game_t *game,
@@ -1583,6 +1913,13 @@ static void fighter_renderer_draw_playfield_fb(
                                 timer_scale, ui_text_color);
 }
 
+/*
+ * 绘制游戏结束画面。
+ * 参数：
+ *   renderer：渲染器对象。
+ *   game：当前游戏状态。
+ *   anim_system：动画系统，用于保留场上角色画面。
+ */
 static void fighter_renderer_draw_game_over_fb(
     fighter_renderer_t *renderer,
     const fighter_game_t *game,
@@ -1647,6 +1984,12 @@ static void fighter_renderer_draw_game_over_fb(
 }
 #endif
 
+/*
+ * 绘制控制台后端输出。
+ * 参数：
+ *   renderer：渲染器对象，保存上次打印状态。
+ *   game：当前游戏状态。
+ */
 static void fighter_renderer_draw_console(fighter_renderer_t *renderer,
                                           const fighter_game_t *game) {
   int game_changed;
@@ -1724,6 +2067,12 @@ static void fighter_renderer_draw_console(fighter_renderer_t *renderer,
   }
 }
 
+/*
+ * 初始化渲染器，并按优先级尝试 MMIO、Linux framebuffer、控制台后端。
+ * 参数：
+ *   renderer：要初始化的渲染器对象。
+ *   options：渲染选项，可为 NULL 表示使用默认值。
+ */
 int fighter_renderer_init(fighter_renderer_t *renderer,
                           const fighter_renderer_options_t *options) {
   fighter_renderer_options_t local_options;
@@ -1869,6 +2218,11 @@ int fighter_renderer_init(fighter_renderer_t *renderer,
   return 0;
 }
 
+/*
+ * 关闭渲染器并释放所有后端资源和图片缓存。
+ * 参数：
+ *   renderer：要关闭的渲染器对象。
+ */
 void fighter_renderer_close(fighter_renderer_t *renderer) {
   if (!renderer) {
     return;
@@ -1898,6 +2252,13 @@ void fighter_renderer_close(fighter_renderer_t *renderer) {
 #endif
 }
 
+/*
+ * 根据当前后端绘制一帧游戏画面。
+ * 参数：
+ *   renderer：渲染器对象。
+ *   game：当前游戏状态。
+ *   anim_system：动画系统，framebuffer/MMIO 后端用它取得角色帧。
+ */
 void fighter_renderer_draw(fighter_renderer_t *renderer,
                            const fighter_game_t *game,
                            const fighter_animation_system_t *anim_system) {
@@ -1935,6 +2296,11 @@ void fighter_renderer_draw(fighter_renderer_t *renderer,
   fighter_renderer_draw_console(renderer, game);
 }
 
+/*
+ * 返回当前渲染后端名称。
+ * 参数：
+ *   renderer：渲染器对象。
+ */
 const char *fighter_renderer_backend_name(const fighter_renderer_t *renderer) {
   if (!renderer) {
     return "unknown";
@@ -1951,6 +2317,11 @@ const char *fighter_renderer_backend_name(const fighter_renderer_t *renderer) {
   }
 }
 
+/*
+ * 返回当前使用的 framebuffer 路径。
+ * 参数：
+ *   renderer：渲染器对象。
+ */
 const char *fighter_renderer_active_framebuffer_path(
     const fighter_renderer_t *renderer) {
   if (!renderer || renderer->framebuffer_path_used[0] == '\0') {
@@ -1959,6 +2330,11 @@ const char *fighter_renderer_active_framebuffer_path(
   return renderer->framebuffer_path_used;
 }
 
+/*
+ * 返回渲染器初始化状态说明。
+ * 参数：
+ *   renderer：渲染器对象。
+ */
 const char *fighter_renderer_status_detail(const fighter_renderer_t *renderer) {
   if (!renderer || renderer->init_status[0] == '\0') {
     return "no renderer status";
