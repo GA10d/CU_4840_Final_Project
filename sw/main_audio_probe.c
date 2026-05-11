@@ -13,7 +13,7 @@ enum {
 };
 
 static const off_t k_default_bridge_reset_addr = (off_t)0xFFD0501C;
-static const off_t k_default_mmio_addr = (off_t)0xFF203040;
+static const off_t k_default_mmio_addr = (off_t)0xFF200000;
 
 static int fighter_audio_probe_parse_address(const char *text,
                                              off_t default_value,

@@ -4,83 +4,91 @@
 
 `timescale 1 ps / 1 ps
 module soc_system (
-		input  wire        audio_adcdat,                 //    audio.adcdat
-		output wire        audio_adclrck,                //         .adclrck
-		output wire        audio_bclk,                   //         .bclk
-		output wire        audio_dacdat,                 //         .dacdat
-		output wire        audio_daclrck,                //         .daclrck
-		output wire        audio_xck,                    //         .xck
-		output wire        audio_init_done,              //         .init_done
-		output wire        audio_init_error,             //         .init_error
-		inout  wire        audio_i2c_sclk,               //         .i2c_sclk
-		inout  wire        audio_i2c_sdat,               //         .i2c_sdat
-		input  wire        clk_clk,                      //      clk.clk
-		output wire        hps_hps_io_emac1_inst_TX_CLK, //      hps.hps_io_emac1_inst_TX_CLK
-		output wire        hps_hps_io_emac1_inst_TXD0,   //         .hps_io_emac1_inst_TXD0
-		output wire        hps_hps_io_emac1_inst_TXD1,   //         .hps_io_emac1_inst_TXD1
-		output wire        hps_hps_io_emac1_inst_TXD2,   //         .hps_io_emac1_inst_TXD2
-		output wire        hps_hps_io_emac1_inst_TXD3,   //         .hps_io_emac1_inst_TXD3
-		input  wire        hps_hps_io_emac1_inst_RXD0,   //         .hps_io_emac1_inst_RXD0
-		inout  wire        hps_hps_io_emac1_inst_MDIO,   //         .hps_io_emac1_inst_MDIO
-		output wire        hps_hps_io_emac1_inst_MDC,    //         .hps_io_emac1_inst_MDC
-		input  wire        hps_hps_io_emac1_inst_RX_CTL, //         .hps_io_emac1_inst_RX_CTL
-		output wire        hps_hps_io_emac1_inst_TX_CTL, //         .hps_io_emac1_inst_TX_CTL
-		input  wire        hps_hps_io_emac1_inst_RX_CLK, //         .hps_io_emac1_inst_RX_CLK
-		input  wire        hps_hps_io_emac1_inst_RXD1,   //         .hps_io_emac1_inst_RXD1
-		input  wire        hps_hps_io_emac1_inst_RXD2,   //         .hps_io_emac1_inst_RXD2
-		input  wire        hps_hps_io_emac1_inst_RXD3,   //         .hps_io_emac1_inst_RXD3
-		inout  wire        hps_hps_io_sdio_inst_CMD,     //         .hps_io_sdio_inst_CMD
-		inout  wire        hps_hps_io_sdio_inst_D0,      //         .hps_io_sdio_inst_D0
-		inout  wire        hps_hps_io_sdio_inst_D1,      //         .hps_io_sdio_inst_D1
-		output wire        hps_hps_io_sdio_inst_CLK,     //         .hps_io_sdio_inst_CLK
-		inout  wire        hps_hps_io_sdio_inst_D2,      //         .hps_io_sdio_inst_D2
-		inout  wire        hps_hps_io_sdio_inst_D3,      //         .hps_io_sdio_inst_D3
-		inout  wire        hps_hps_io_usb1_inst_D0,      //         .hps_io_usb1_inst_D0
-		inout  wire        hps_hps_io_usb1_inst_D1,      //         .hps_io_usb1_inst_D1
-		inout  wire        hps_hps_io_usb1_inst_D2,      //         .hps_io_usb1_inst_D2
-		inout  wire        hps_hps_io_usb1_inst_D3,      //         .hps_io_usb1_inst_D3
-		inout  wire        hps_hps_io_usb1_inst_D4,      //         .hps_io_usb1_inst_D4
-		inout  wire        hps_hps_io_usb1_inst_D5,      //         .hps_io_usb1_inst_D5
-		inout  wire        hps_hps_io_usb1_inst_D6,      //         .hps_io_usb1_inst_D6
-		inout  wire        hps_hps_io_usb1_inst_D7,      //         .hps_io_usb1_inst_D7
-		input  wire        hps_hps_io_usb1_inst_CLK,     //         .hps_io_usb1_inst_CLK
-		output wire        hps_hps_io_usb1_inst_STP,     //         .hps_io_usb1_inst_STP
-		input  wire        hps_hps_io_usb1_inst_DIR,     //         .hps_io_usb1_inst_DIR
-		input  wire        hps_hps_io_usb1_inst_NXT,     //         .hps_io_usb1_inst_NXT
-		output wire        hps_hps_io_spim1_inst_CLK,    //         .hps_io_spim1_inst_CLK
-		output wire        hps_hps_io_spim1_inst_MOSI,   //         .hps_io_spim1_inst_MOSI
-		input  wire        hps_hps_io_spim1_inst_MISO,   //         .hps_io_spim1_inst_MISO
-		output wire        hps_hps_io_spim1_inst_SS0,    //         .hps_io_spim1_inst_SS0
-		input  wire        hps_hps_io_uart0_inst_RX,     //         .hps_io_uart0_inst_RX
-		output wire        hps_hps_io_uart0_inst_TX,     //         .hps_io_uart0_inst_TX
-		inout  wire        hps_hps_io_i2c0_inst_SDA,     //         .hps_io_i2c0_inst_SDA
-		inout  wire        hps_hps_io_i2c0_inst_SCL,     //         .hps_io_i2c0_inst_SCL
-		inout  wire        hps_hps_io_i2c1_inst_SDA,     //         .hps_io_i2c1_inst_SDA
-		inout  wire        hps_hps_io_i2c1_inst_SCL,     //         .hps_io_i2c1_inst_SCL
-		inout  wire        hps_hps_io_gpio_inst_GPIO09,  //         .hps_io_gpio_inst_GPIO09
-		inout  wire        hps_hps_io_gpio_inst_GPIO35,  //         .hps_io_gpio_inst_GPIO35
-		inout  wire        hps_hps_io_gpio_inst_GPIO40,  //         .hps_io_gpio_inst_GPIO40
-		inout  wire        hps_hps_io_gpio_inst_GPIO48,  //         .hps_io_gpio_inst_GPIO48
-		inout  wire        hps_hps_io_gpio_inst_GPIO53,  //         .hps_io_gpio_inst_GPIO53
-		inout  wire        hps_hps_io_gpio_inst_GPIO54,  //         .hps_io_gpio_inst_GPIO54
-		inout  wire        hps_hps_io_gpio_inst_GPIO61,  //         .hps_io_gpio_inst_GPIO61
-		output wire [14:0] hps_ddr3_mem_a,               // hps_ddr3.mem_a
-		output wire [2:0]  hps_ddr3_mem_ba,              //         .mem_ba
-		output wire        hps_ddr3_mem_ck,              //         .mem_ck
-		output wire        hps_ddr3_mem_ck_n,            //         .mem_ck_n
-		output wire        hps_ddr3_mem_cke,             //         .mem_cke
-		output wire        hps_ddr3_mem_cs_n,            //         .mem_cs_n
-		output wire        hps_ddr3_mem_ras_n,           //         .mem_ras_n
-		output wire        hps_ddr3_mem_cas_n,           //         .mem_cas_n
-		output wire        hps_ddr3_mem_we_n,            //         .mem_we_n
-		output wire        hps_ddr3_mem_reset_n,         //         .mem_reset_n
-		inout  wire [31:0] hps_ddr3_mem_dq,              //         .mem_dq
-		inout  wire [3:0]  hps_ddr3_mem_dqs,             //         .mem_dqs
-		inout  wire [3:0]  hps_ddr3_mem_dqs_n,           //         .mem_dqs_n
-		output wire        hps_ddr3_mem_odt,             //         .mem_odt
-		output wire [3:0]  hps_ddr3_mem_dm,              //         .mem_dm
-		input  wire        hps_ddr3_oct_rzqin,           //         .oct_rzqin
-		input  wire        reset_reset_n                 //    reset.reset_n
+		input  wire        clk_clk,                                        //                           clk.clk
+		input  wire        fighter_audio_0_fighter_audio_audio_adcdat,     // fighter_audio_0_fighter_audio.audio_adcdat
+		output wire        fighter_audio_0_fighter_audio_audio_adclrck,    //                              .audio_adclrck
+		output wire        fighter_audio_0_fighter_audio_audio_bclk,       //                              .audio_bclk
+		output wire        fighter_audio_0_fighter_audio_audio_dacdat,     //                              .audio_dacdat
+		output wire        fighter_audio_0_fighter_audio_aud_daclrck,      //                              .aud_daclrck
+		output wire        fighter_audio_0_fighter_audio_audio_xck,        //                              .audio_xck
+		output wire        fighter_audio_0_fighter_audio_audio_init_done,  //                              .audio_init_done
+		output wire        fighter_audio_0_fighter_audio_audio_init_error, //                              .audio_init_error
+		inout  wire        fighter_audio_0_fighter_audio_audio_i2c_sclk,   //                              .audio_i2c_sclk
+		inout  wire        fighter_audio_0_fighter_audio_audio_i2c_sdat,   //                              .audio_i2c_sdat
+		output wire [7:0]  fighter_vga_0_vga_vga_r,                        //             fighter_vga_0_vga.vga_r
+		output wire [7:0]  fighter_vga_0_vga_vga_g,                        //                              .vga_g
+		output wire [7:0]  fighter_vga_0_vga_vga_b,                        //                              .vga_b
+		output wire        fighter_vga_0_vga_vga_hs,                       //                              .vga_hs
+		output wire        fighter_vga_0_vga_vga_vs,                       //                              .vga_vs
+		output wire        fighter_vga_0_vga_vga_clk,                      //                              .vga_clk
+		output wire        fighter_vga_0_vga_vga_blank_n,                  //                              .vga_blank_n
+		output wire        fighter_vga_0_vga_vga_sync_n,                   //                              .vga_sync_n
+		output wire        hps_hps_io_emac1_inst_TX_CLK,                   //                           hps.hps_io_emac1_inst_TX_CLK
+		output wire        hps_hps_io_emac1_inst_TXD0,                     //                              .hps_io_emac1_inst_TXD0
+		output wire        hps_hps_io_emac1_inst_TXD1,                     //                              .hps_io_emac1_inst_TXD1
+		output wire        hps_hps_io_emac1_inst_TXD2,                     //                              .hps_io_emac1_inst_TXD2
+		output wire        hps_hps_io_emac1_inst_TXD3,                     //                              .hps_io_emac1_inst_TXD3
+		input  wire        hps_hps_io_emac1_inst_RXD0,                     //                              .hps_io_emac1_inst_RXD0
+		inout  wire        hps_hps_io_emac1_inst_MDIO,                     //                              .hps_io_emac1_inst_MDIO
+		output wire        hps_hps_io_emac1_inst_MDC,                      //                              .hps_io_emac1_inst_MDC
+		input  wire        hps_hps_io_emac1_inst_RX_CTL,                   //                              .hps_io_emac1_inst_RX_CTL
+		output wire        hps_hps_io_emac1_inst_TX_CTL,                   //                              .hps_io_emac1_inst_TX_CTL
+		input  wire        hps_hps_io_emac1_inst_RX_CLK,                   //                              .hps_io_emac1_inst_RX_CLK
+		input  wire        hps_hps_io_emac1_inst_RXD1,                     //                              .hps_io_emac1_inst_RXD1
+		input  wire        hps_hps_io_emac1_inst_RXD2,                     //                              .hps_io_emac1_inst_RXD2
+		input  wire        hps_hps_io_emac1_inst_RXD3,                     //                              .hps_io_emac1_inst_RXD3
+		inout  wire        hps_hps_io_sdio_inst_CMD,                       //                              .hps_io_sdio_inst_CMD
+		inout  wire        hps_hps_io_sdio_inst_D0,                        //                              .hps_io_sdio_inst_D0
+		inout  wire        hps_hps_io_sdio_inst_D1,                        //                              .hps_io_sdio_inst_D1
+		output wire        hps_hps_io_sdio_inst_CLK,                       //                              .hps_io_sdio_inst_CLK
+		inout  wire        hps_hps_io_sdio_inst_D2,                        //                              .hps_io_sdio_inst_D2
+		inout  wire        hps_hps_io_sdio_inst_D3,                        //                              .hps_io_sdio_inst_D3
+		inout  wire        hps_hps_io_usb1_inst_D0,                        //                              .hps_io_usb1_inst_D0
+		inout  wire        hps_hps_io_usb1_inst_D1,                        //                              .hps_io_usb1_inst_D1
+		inout  wire        hps_hps_io_usb1_inst_D2,                        //                              .hps_io_usb1_inst_D2
+		inout  wire        hps_hps_io_usb1_inst_D3,                        //                              .hps_io_usb1_inst_D3
+		inout  wire        hps_hps_io_usb1_inst_D4,                        //                              .hps_io_usb1_inst_D4
+		inout  wire        hps_hps_io_usb1_inst_D5,                        //                              .hps_io_usb1_inst_D5
+		inout  wire        hps_hps_io_usb1_inst_D6,                        //                              .hps_io_usb1_inst_D6
+		inout  wire        hps_hps_io_usb1_inst_D7,                        //                              .hps_io_usb1_inst_D7
+		input  wire        hps_hps_io_usb1_inst_CLK,                       //                              .hps_io_usb1_inst_CLK
+		output wire        hps_hps_io_usb1_inst_STP,                       //                              .hps_io_usb1_inst_STP
+		input  wire        hps_hps_io_usb1_inst_DIR,                       //                              .hps_io_usb1_inst_DIR
+		input  wire        hps_hps_io_usb1_inst_NXT,                       //                              .hps_io_usb1_inst_NXT
+		output wire        hps_hps_io_spim1_inst_CLK,                      //                              .hps_io_spim1_inst_CLK
+		output wire        hps_hps_io_spim1_inst_MOSI,                     //                              .hps_io_spim1_inst_MOSI
+		input  wire        hps_hps_io_spim1_inst_MISO,                     //                              .hps_io_spim1_inst_MISO
+		output wire        hps_hps_io_spim1_inst_SS0,                      //                              .hps_io_spim1_inst_SS0
+		input  wire        hps_hps_io_uart0_inst_RX,                       //                              .hps_io_uart0_inst_RX
+		output wire        hps_hps_io_uart0_inst_TX,                       //                              .hps_io_uart0_inst_TX
+		inout  wire        hps_hps_io_i2c0_inst_SDA,                       //                              .hps_io_i2c0_inst_SDA
+		inout  wire        hps_hps_io_i2c0_inst_SCL,                       //                              .hps_io_i2c0_inst_SCL
+		inout  wire        hps_hps_io_i2c1_inst_SDA,                       //                              .hps_io_i2c1_inst_SDA
+		inout  wire        hps_hps_io_i2c1_inst_SCL,                       //                              .hps_io_i2c1_inst_SCL
+		inout  wire        hps_hps_io_gpio_inst_GPIO09,                    //                              .hps_io_gpio_inst_GPIO09
+		inout  wire        hps_hps_io_gpio_inst_GPIO35,                    //                              .hps_io_gpio_inst_GPIO35
+		inout  wire        hps_hps_io_gpio_inst_GPIO40,                    //                              .hps_io_gpio_inst_GPIO40
+		inout  wire        hps_hps_io_gpio_inst_GPIO48,                    //                              .hps_io_gpio_inst_GPIO48
+		inout  wire        hps_hps_io_gpio_inst_GPIO53,                    //                              .hps_io_gpio_inst_GPIO53
+		inout  wire        hps_hps_io_gpio_inst_GPIO54,                    //                              .hps_io_gpio_inst_GPIO54
+		inout  wire        hps_hps_io_gpio_inst_GPIO61,                    //                              .hps_io_gpio_inst_GPIO61
+		output wire [14:0] hps_ddr3_mem_a,                                 //                      hps_ddr3.mem_a
+		output wire [2:0]  hps_ddr3_mem_ba,                                //                              .mem_ba
+		output wire        hps_ddr3_mem_ck,                                //                              .mem_ck
+		output wire        hps_ddr3_mem_ck_n,                              //                              .mem_ck_n
+		output wire        hps_ddr3_mem_cke,                               //                              .mem_cke
+		output wire        hps_ddr3_mem_cs_n,                              //                              .mem_cs_n
+		output wire        hps_ddr3_mem_ras_n,                             //                              .mem_ras_n
+		output wire        hps_ddr3_mem_cas_n,                             //                              .mem_cas_n
+		output wire        hps_ddr3_mem_we_n,                              //                              .mem_we_n
+		output wire        hps_ddr3_mem_reset_n,                           //                              .mem_reset_n
+		inout  wire [31:0] hps_ddr3_mem_dq,                                //                              .mem_dq
+		inout  wire [3:0]  hps_ddr3_mem_dqs,                               //                              .mem_dqs
+		inout  wire [3:0]  hps_ddr3_mem_dqs_n,                             //                              .mem_dqs_n
+		output wire        hps_ddr3_mem_odt,                               //                              .mem_odt
+		output wire [3:0]  hps_ddr3_mem_dm,                                //                              .mem_dm
+		input  wire        hps_ddr3_oct_rzqin,                             //                              .oct_rzqin
+		input  wire        reset_reset_n                                   //                         reset.reset_n
 	);
 
 	wire   [1:0] hps_0_h2f_lw_axi_master_awburst;                             // hps_0:h2f_lw_AWBURST -> mm_interconnect_0:hps_0_h2f_lw_axi_master_awburst
@@ -125,16 +133,22 @@ module soc_system (
 	wire         mm_interconnect_0_fighter_audio_0_avalon_slave_0_read;       // mm_interconnect_0:fighter_audio_0_avalon_slave_0_read -> fighter_audio_0:avs_read
 	wire         mm_interconnect_0_fighter_audio_0_avalon_slave_0_write;      // mm_interconnect_0:fighter_audio_0_avalon_slave_0_write -> fighter_audio_0:avs_write
 	wire  [31:0] mm_interconnect_0_fighter_audio_0_avalon_slave_0_writedata;  // mm_interconnect_0:fighter_audio_0_avalon_slave_0_writedata -> fighter_audio_0:avs_writedata
-	wire         rst_controller_reset_out_reset;                              // rst_controller:reset_out -> [fighter_audio_0:reset_n, mm_interconnect_0:fighter_audio_0_reset_reset_bridge_in_reset_reset]
+	wire         mm_interconnect_0_fighter_vga_0_avalon_slave_0_chipselect;   // mm_interconnect_0:fighter_vga_0_avalon_slave_0_chipselect -> fighter_vga_0:avs_chipselect
+	wire  [31:0] mm_interconnect_0_fighter_vga_0_avalon_slave_0_readdata;     // fighter_vga_0:avs_readdata -> mm_interconnect_0:fighter_vga_0_avalon_slave_0_readdata
+	wire  [15:0] mm_interconnect_0_fighter_vga_0_avalon_slave_0_address;      // mm_interconnect_0:fighter_vga_0_avalon_slave_0_address -> fighter_vga_0:avs_address
+	wire         mm_interconnect_0_fighter_vga_0_avalon_slave_0_read;         // mm_interconnect_0:fighter_vga_0_avalon_slave_0_read -> fighter_vga_0:avs_read
+	wire         mm_interconnect_0_fighter_vga_0_avalon_slave_0_write;        // mm_interconnect_0:fighter_vga_0_avalon_slave_0_write -> fighter_vga_0:avs_write
+	wire  [31:0] mm_interconnect_0_fighter_vga_0_avalon_slave_0_writedata;    // mm_interconnect_0:fighter_vga_0_avalon_slave_0_writedata -> fighter_vga_0:avs_writedata
+	wire         rst_controller_reset_out_reset;                              // rst_controller:reset_out -> [fighter_audio_0:reset_n, fighter_vga_0:reset_n, mm_interconnect_0:fighter_audio_0_reset_reset_bridge_in_reset_reset]
 	wire         rst_controller_001_reset_out_reset;                          // rst_controller_001:reset_out -> mm_interconnect_0:hps_0_h2f_lw_axi_master_agent_clk_reset_reset_bridge_in_reset_reset
 	wire         hps_0_h2f_reset_reset;                                       // hps_0:h2f_rst_n -> rst_controller_001:reset_in0
 
 	fighter_audio_wm8731 #(
-		.FIFO_DEPTH      ("128"),
-		.CLK_HZ          ("50000000"),
-		.I2C_RATE_HZ     ("100000"),
-		.XCK_DIV         ("4"),
-		.BCLK_DIV        ("16"),
+		.FIFO_DEPTH      (128),
+		.CLK_HZ          (50000000),
+		.I2C_RATE_HZ     (100000),
+		.XCK_DIV         (4),
+		.BCLK_DIV        (16),
 		.I2C_DEVICE_ADDR (8'b00011010)
 	) fighter_audio_0 (
 		.clk              (clk_clk),                                                     //          clock.clk
@@ -145,16 +159,35 @@ module soc_system (
 		.avs_address      (mm_interconnect_0_fighter_audio_0_avalon_slave_0_address),    //               .address
 		.avs_writedata    (mm_interconnect_0_fighter_audio_0_avalon_slave_0_writedata),  //               .writedata
 		.avs_readdata     (mm_interconnect_0_fighter_audio_0_avalon_slave_0_readdata),   //               .readdata
-		.aud_adcdat       (audio_adcdat),                                                //          audio.adcdat
-		.aud_adclrck      (audio_adclrck),                                               //               .adclrck
-		.aud_bclk         (audio_bclk),                                                  //               .bclk
-		.aud_dacdat       (audio_dacdat),                                                //               .dacdat
-		.aud_daclrck      (audio_daclrck),                                               //               .daclrck
-		.aud_xck          (audio_xck),                                                   //               .xck
-		.codec_init_done  (audio_init_done),                                             //               .init_done
-		.codec_init_error (audio_init_error),                                            //               .init_error
-		.fpga_i2c_sclk    (audio_i2c_sclk),                                              //               .i2c_sclk
-		.fpga_i2c_sdat    (audio_i2c_sdat)                                               //               .i2c_sdat
+		.aud_adcdat       (fighter_audio_0_fighter_audio_audio_adcdat),                  //  fighter_audio.audio_adcdat
+		.aud_adclrck      (fighter_audio_0_fighter_audio_audio_adclrck),                 //               .audio_adclrck
+		.aud_bclk         (fighter_audio_0_fighter_audio_audio_bclk),                    //               .audio_bclk
+		.aud_dacdat       (fighter_audio_0_fighter_audio_audio_dacdat),                  //               .audio_dacdat
+		.aud_daclrck      (fighter_audio_0_fighter_audio_aud_daclrck),                   //               .aud_daclrck
+		.aud_xck          (fighter_audio_0_fighter_audio_audio_xck),                     //               .audio_xck
+		.codec_init_done  (fighter_audio_0_fighter_audio_audio_init_done),               //               .audio_init_done
+		.codec_init_error (fighter_audio_0_fighter_audio_audio_init_error),              //               .audio_init_error
+		.fpga_i2c_sclk    (fighter_audio_0_fighter_audio_audio_i2c_sclk),                //               .audio_i2c_sclk
+		.fpga_i2c_sdat    (fighter_audio_0_fighter_audio_audio_i2c_sdat)                 //               .audio_i2c_sdat
+	);
+
+	fighter_vga_renderer fighter_vga_0 (
+		.clk_50         (clk_clk),                                                   //          clock.clk
+		.reset_n        (~rst_controller_reset_out_reset),                           //          reset.reset_n
+		.avs_chipselect (mm_interconnect_0_fighter_vga_0_avalon_slave_0_chipselect), // avalon_slave_0.chipselect
+		.avs_read       (mm_interconnect_0_fighter_vga_0_avalon_slave_0_read),       //               .read
+		.avs_write      (mm_interconnect_0_fighter_vga_0_avalon_slave_0_write),      //               .write
+		.avs_address    (mm_interconnect_0_fighter_vga_0_avalon_slave_0_address),    //               .address
+		.avs_writedata  (mm_interconnect_0_fighter_vga_0_avalon_slave_0_writedata),  //               .writedata
+		.avs_readdata   (mm_interconnect_0_fighter_vga_0_avalon_slave_0_readdata),   //               .readdata
+		.vga_r          (fighter_vga_0_vga_vga_r),                                   //            vga.vga_r
+		.vga_g          (fighter_vga_0_vga_vga_g),                                   //               .vga_g
+		.vga_b          (fighter_vga_0_vga_vga_b),                                   //               .vga_b
+		.vga_hs         (fighter_vga_0_vga_vga_hs),                                  //               .vga_hs
+		.vga_vs         (fighter_vga_0_vga_vga_vs),                                  //               .vga_vs
+		.vga_clk        (fighter_vga_0_vga_vga_clk),                                 //               .vga_clk
+		.vga_blank_n    (fighter_vga_0_vga_vga_blank_n),                             //               .vga_blank_n
+		.vga_sync_n     (fighter_vga_0_vga_vga_sync_n)                               //               .vga_sync_n
 	);
 
 	soc_system_hps_0 #(
@@ -388,7 +421,13 @@ module soc_system (
 		.fighter_audio_0_avalon_slave_0_read                                 (mm_interconnect_0_fighter_audio_0_avalon_slave_0_read),       //                                                              .read
 		.fighter_audio_0_avalon_slave_0_readdata                             (mm_interconnect_0_fighter_audio_0_avalon_slave_0_readdata),   //                                                              .readdata
 		.fighter_audio_0_avalon_slave_0_writedata                            (mm_interconnect_0_fighter_audio_0_avalon_slave_0_writedata),  //                                                              .writedata
-		.fighter_audio_0_avalon_slave_0_chipselect                           (mm_interconnect_0_fighter_audio_0_avalon_slave_0_chipselect)  //                                                              .chipselect
+		.fighter_audio_0_avalon_slave_0_chipselect                           (mm_interconnect_0_fighter_audio_0_avalon_slave_0_chipselect), //                                                              .chipselect
+		.fighter_vga_0_avalon_slave_0_address                                (mm_interconnect_0_fighter_vga_0_avalon_slave_0_address),      //                                  fighter_vga_0_avalon_slave_0.address
+		.fighter_vga_0_avalon_slave_0_write                                  (mm_interconnect_0_fighter_vga_0_avalon_slave_0_write),        //                                                              .write
+		.fighter_vga_0_avalon_slave_0_read                                   (mm_interconnect_0_fighter_vga_0_avalon_slave_0_read),         //                                                              .read
+		.fighter_vga_0_avalon_slave_0_readdata                               (mm_interconnect_0_fighter_vga_0_avalon_slave_0_readdata),     //                                                              .readdata
+		.fighter_vga_0_avalon_slave_0_writedata                              (mm_interconnect_0_fighter_vga_0_avalon_slave_0_writedata),    //                                                              .writedata
+		.fighter_vga_0_avalon_slave_0_chipselect                             (mm_interconnect_0_fighter_vga_0_avalon_slave_0_chipselect)    //                                                              .chipselect
 	);
 
 	altera_reset_controller #(

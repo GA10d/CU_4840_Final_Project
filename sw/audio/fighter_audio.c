@@ -20,8 +20,7 @@
 enum {
   FIGHTER_PLAYER_KIND_NONE = 0,
   FIGHTER_PLAYER_KIND_APLAY,
-  FIGHTER_PLAYER_KIND_FFPLAY,
-  FIGHTER_PLAYER_KIND_AFPLAY
+  FIGHTER_PLAYER_KIND_FFPLAY
 };
 
 enum {
@@ -69,7 +68,7 @@ typedef struct {
 } fighter_audio_mmio_state_t;
 
 static const off_t k_fighter_audio_default_bridge_reset_addr = (off_t)0xFFD0501C;
-static const off_t k_fighter_audio_default_mmio_addr = (off_t)0xFF203040;
+static const off_t k_fighter_audio_default_mmio_addr = (off_t)0xFF200000;
 
 static void fighter_audio_set_status_detail(fighter_audio_context_t *context,
                                             const char *fmt,
@@ -280,9 +279,6 @@ static void fighter_audio_build_once_command(const fighter_audio_context_t *cont
                "ffplay -nodisp -autoexit -loglevel quiet %s >/dev/null 2>&1",
                quoted_path);
       break;
-    case FIGHTER_PLAYER_KIND_AFPLAY:
-      snprintf(buffer, buffer_size, "afplay %s >/dev/null 2>&1", quoted_path);
-      break;
     default:
       buffer[0] = '\0';
       break;
@@ -317,10 +313,6 @@ static void fighter_audio_build_loop_command(const fighter_audio_context_t *cont
                ">/dev/null 2>&1",
                quoted_path);
       break;
-    case FIGHTER_PLAYER_KIND_AFPLAY:
-      snprintf(buffer, buffer_size,
-               "while afplay %s >/dev/null 2>&1; do :; done", quoted_path);
-      break;
     default:
       buffer[0] = '\0';
       break;
@@ -341,11 +333,6 @@ static int fighter_audio_prepare_command_backend(fighter_audio_context_t *contex
 
   if (fighter_find_in_path("ffplay")) {
     context->player_kind = FIGHTER_PLAYER_KIND_FFPLAY;
-    return 0;
-  }
-
-  if (fighter_find_in_path("afplay")) {
-    context->player_kind = FIGHTER_PLAYER_KIND_AFPLAY;
     return 0;
   }
 
@@ -1156,8 +1143,6 @@ const char *fighter_audio_backend_name(const fighter_audio_context_t *context) {
           return "aplay";
         case FIGHTER_PLAYER_KIND_FFPLAY:
           return "ffplay";
-        case FIGHTER_PLAYER_KIND_AFPLAY:
-          return "afplay";
         case FIGHTER_PLAYER_KIND_NONE:
         default:
           return "command";
