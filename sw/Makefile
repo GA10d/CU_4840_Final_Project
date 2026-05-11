@@ -46,11 +46,7 @@ GAMEPAD_PROBE_TARGET := gamepad_probe
 GAMEPAD_PROBE_SRCS := main_gamepad_probe.c
 GAMEPAD_PROBE_OBJS := $(GAMEPAD_PROBE_SRCS:.c=.o)
 
-INPUT_DEMO_TARGET := input_demo
 PHASE1_USB_OBJS :=
-INPUT_DEMO_SRCS :=
-INPUT_DEMO_OBJS :=
-USB_TARGETS :=
 USB_LDLIBS :=
 
 LIBUSB_LIBS := $(shell command -v $(PKG_CONFIG) >/dev/null 2>&1 && \
@@ -63,9 +59,6 @@ else
 USB_LDLIBS := $(LIBUSB_LIBS)
 endif
 PHASE1_USB_OBJS := input/usb_hid_keyboard.o
-USB_TARGETS := $(INPUT_DEMO_TARGET)
-INPUT_DEMO_SRCS := main_input_demo.c input/usb_hid_keyboard.c $(COMMON_SRCS)
-INPUT_DEMO_OBJS := $(INPUT_DEMO_SRCS:.c=.o)
 endif
 
 .PHONY: all clean rebuild FORCE
@@ -73,11 +66,10 @@ endif
 DEPFILES := $(sort $(PHASE1_OBJS:.o=.d) $(TEST_OBJS:.o=.d) \
 	$(AUDIO_DEMO_OBJS:.o=.d) $(AUDIO_PROBE_OBJS:.o=.d) \
 	$(VGA_PROBE_OBJS:.o=.d) $(GAMEPAD_PROBE_OBJS:.o=.d) \
-	$(PHASE1_USB_OBJS:.o=.d) \
-	$(INPUT_DEMO_OBJS:.o=.d))
+	$(PHASE1_USB_OBJS:.o=.d))
 
 all: $(PHASE1_TARGET) $(TEST_TARGET) $(AUDIO_DEMO_TARGET) \
-	$(AUDIO_PROBE_TARGET) $(VGA_PROBE_TARGET) $(USB_TARGETS)
+	$(AUDIO_PROBE_TARGET) $(VGA_PROBE_TARGET)
 
 FORCE:
 
@@ -99,8 +91,6 @@ $(BUILD_SIGNATURE_FILE): Makefile FORCE
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(DEPFLAGS) -c -o $@ $<
 
 $(PHASE1_TARGET): LDLIBS += $(USB_LDLIBS)
-$(INPUT_DEMO_TARGET): LDLIBS += $(USB_LDLIBS)
-
 $(PHASE1_TARGET): $(COMMON_OBJS) main_phase1_demo.o $(PHASE1_USB_OBJS) \
 	$(BUILD_SIGNATURE_FILE)
 	$(CC) $(CFLAGS) $(CPPFLAGS) $(LDFLAGS) -o $@ \
@@ -126,26 +116,15 @@ $(GAMEPAD_PROBE_TARGET): $(GAMEPAD_PROBE_OBJS) $(BUILD_SIGNATURE_FILE)
 	$(CC) $(CFLAGS) $(CPPFLAGS) $(LDFLAGS) -o $@ \
 		$(filter %.o,$^) $(LDLIBS)
 
-ifeq ($(HAVE_LIBUSB),1)
-$(INPUT_DEMO_TARGET): $(INPUT_DEMO_OBJS) $(BUILD_SIGNATURE_FILE)
-	$(CC) $(CFLAGS) $(CPPFLAGS) $(LDFLAGS) -o $@ \
-		$(filter %.o,$^) $(LDLIBS)
-else
-$(INPUT_DEMO_TARGET):
-	@echo "input_demo requires libusb-1.0; install libusb and rebuild"
-	@false
-endif
-
 -include $(DEPFILES)
 
 clean:
 	$(RM) $(PHASE1_TARGET) $(TEST_TARGET) $(AUDIO_DEMO_TARGET) \
 		$(AUDIO_PROBE_TARGET) $(VGA_PROBE_TARGET) \
-		$(GAMEPAD_PROBE_TARGET) \
-		$(INPUT_DEMO_TARGET) $(PHASE1_OBJS) \
+		$(GAMEPAD_PROBE_TARGET) $(PHASE1_OBJS) \
 		$(TEST_OBJS) $(AUDIO_DEMO_OBJS) $(AUDIO_PROBE_OBJS) \
 		$(VGA_PROBE_OBJS) $(GAMEPAD_PROBE_OBJS) \
-		$(PHASE1_USB_OBJS) $(INPUT_DEMO_OBJS) \
+		$(PHASE1_USB_OBJS) \
 		$(DEPFILES) $(BUILD_SIGNATURE_FILE)
 
 rebuild: clean
