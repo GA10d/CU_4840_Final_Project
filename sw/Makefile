@@ -1,7 +1,7 @@
 CC ?= gcc
 PKG_CONFIG ?= pkg-config
-BUILD_SIGNATURE_FILE := .build_signature
 DEPFLAGS := -MMD -MP
+.RECIPEPREFIX := >
 
 HAVE_LIBUSB := $(shell command -v $(PKG_CONFIG) >/dev/null 2>&1 && \
 	$(PKG_CONFIG) --exists libusb-1.0 && echo 1 || echo 0)
@@ -30,10 +30,6 @@ TEST_TARGET := phase1_test
 TEST_SRCS := tests/test_phase1.c $(COMMON_SRCS)
 TEST_OBJS := $(TEST_SRCS:.c=.o)
 
-AUDIO_DEMO_TARGET := audio_demo
-AUDIO_DEMO_SRCS := main_audio_demo.c audio/fighter_audio.c
-AUDIO_DEMO_OBJS := $(AUDIO_DEMO_SRCS:.c=.o)
-
 AUDIO_PROBE_TARGET := audio_probe
 AUDIO_PROBE_SRCS := main_audio_probe.c
 AUDIO_PROBE_OBJS := $(AUDIO_PROBE_SRCS:.c=.o)
@@ -61,71 +57,50 @@ endif
 PHASE1_USB_OBJS := input/usb_hid_keyboard.o
 endif
 
-.PHONY: all clean rebuild FORCE
+.PHONY: all clean rebuild
 
 DEPFILES := $(sort $(PHASE1_OBJS:.o=.d) $(TEST_OBJS:.o=.d) \
-	$(AUDIO_DEMO_OBJS:.o=.d) $(AUDIO_PROBE_OBJS:.o=.d) \
+	$(AUDIO_PROBE_OBJS:.o=.d) \
 	$(VGA_PROBE_OBJS:.o=.d) $(GAMEPAD_PROBE_OBJS:.o=.d) \
 	$(PHASE1_USB_OBJS:.o=.d))
 
-all: $(PHASE1_TARGET) $(TEST_TARGET) $(AUDIO_DEMO_TARGET) \
-	$(AUDIO_PROBE_TARGET) $(VGA_PROBE_TARGET)
+all: $(PHASE1_TARGET) $(TEST_TARGET) $(AUDIO_PROBE_TARGET) \
+	$(VGA_PROBE_TARGET)
 
-FORCE:
-
-$(BUILD_SIGNATURE_FILE): Makefile FORCE
-	@printf '%s\n' \
-		'CC=$(CC)' \
-		'CPPFLAGS=$(CPPFLAGS)' \
-		'CFLAGS=$(CFLAGS)' \
-		'LDFLAGS=$(LDFLAGS)' \
-		'LDLIBS=$(LDLIBS)' \
-		'USB_LDLIBS=$(USB_LDLIBS)' > $@.tmp
-	@if ! test -f $@ || ! cmp -s $@.tmp $@; then \
-		mv $@.tmp $@; \
-	else \
-		rm -f $@.tmp; \
-	fi
-
-%.o: %.c Makefile $(BUILD_SIGNATURE_FILE)
-	$(CC) $(CPPFLAGS) $(CFLAGS) $(DEPFLAGS) -c -o $@ $<
+%.o: %.c Makefile
+>$(CC) $(CPPFLAGS) $(CFLAGS) $(DEPFLAGS) -c -o $@ $<
 
 $(PHASE1_TARGET): LDLIBS += $(USB_LDLIBS)
-$(PHASE1_TARGET): $(COMMON_OBJS) main_phase1_demo.o $(PHASE1_USB_OBJS) \
-	$(BUILD_SIGNATURE_FILE)
-	$(CC) $(CFLAGS) $(CPPFLAGS) $(LDFLAGS) -o $@ \
-		$(filter %.o,$^) $(LDLIBS)
+$(PHASE1_TARGET): $(COMMON_OBJS) main_phase1_demo.o $(PHASE1_USB_OBJS)
+>$(CC) $(CFLAGS) $(CPPFLAGS) $(LDFLAGS) -o $@ \
+>	$(filter %.o,$^) $(LDLIBS)
 
-$(TEST_TARGET): $(TEST_OBJS) $(BUILD_SIGNATURE_FILE)
-	$(CC) $(CFLAGS) $(CPPFLAGS) $(LDFLAGS) -o $@ \
-		$(filter %.o,$^) $(LDLIBS)
+$(TEST_TARGET): $(TEST_OBJS)
+>$(CC) $(CFLAGS) $(CPPFLAGS) $(LDFLAGS) -o $@ \
+>	$(filter %.o,$^) $(LDLIBS)
 
-$(AUDIO_DEMO_TARGET): $(AUDIO_DEMO_OBJS) $(BUILD_SIGNATURE_FILE)
-	$(CC) $(CFLAGS) $(CPPFLAGS) $(LDFLAGS) -o $@ \
-		$(filter %.o,$^) $(LDLIBS)
+$(AUDIO_PROBE_TARGET): $(AUDIO_PROBE_OBJS)
+>$(CC) $(CFLAGS) $(CPPFLAGS) $(LDFLAGS) -o $@ \
+>	$(filter %.o,$^) $(LDLIBS)
 
-$(AUDIO_PROBE_TARGET): $(AUDIO_PROBE_OBJS) $(BUILD_SIGNATURE_FILE)
-	$(CC) $(CFLAGS) $(CPPFLAGS) $(LDFLAGS) -o $@ \
-		$(filter %.o,$^) $(LDLIBS)
+$(VGA_PROBE_TARGET): $(VGA_PROBE_OBJS)
+>$(CC) $(CFLAGS) $(CPPFLAGS) $(LDFLAGS) -o $@ \
+>	$(filter %.o,$^) $(LDLIBS)
 
-$(VGA_PROBE_TARGET): $(VGA_PROBE_OBJS) $(BUILD_SIGNATURE_FILE)
-	$(CC) $(CFLAGS) $(CPPFLAGS) $(LDFLAGS) -o $@ \
-		$(filter %.o,$^) $(LDLIBS)
-
-$(GAMEPAD_PROBE_TARGET): $(GAMEPAD_PROBE_OBJS) $(BUILD_SIGNATURE_FILE)
-	$(CC) $(CFLAGS) $(CPPFLAGS) $(LDFLAGS) -o $@ \
-		$(filter %.o,$^) $(LDLIBS)
+$(GAMEPAD_PROBE_TARGET): $(GAMEPAD_PROBE_OBJS)
+>$(CC) $(CFLAGS) $(CPPFLAGS) $(LDFLAGS) -o $@ \
+>	$(filter %.o,$^) $(LDLIBS)
 
 -include $(DEPFILES)
 
 clean:
-	$(RM) $(PHASE1_TARGET) $(TEST_TARGET) $(AUDIO_DEMO_TARGET) \
-		$(AUDIO_PROBE_TARGET) $(VGA_PROBE_TARGET) \
-		$(GAMEPAD_PROBE_TARGET) $(PHASE1_OBJS) \
-		$(TEST_OBJS) $(AUDIO_DEMO_OBJS) $(AUDIO_PROBE_OBJS) \
-		$(VGA_PROBE_OBJS) $(GAMEPAD_PROBE_OBJS) \
-		$(PHASE1_USB_OBJS) \
-		$(DEPFILES) $(BUILD_SIGNATURE_FILE)
+>$(RM) $(PHASE1_TARGET) $(TEST_TARGET) \
+>	$(AUDIO_PROBE_TARGET) $(VGA_PROBE_TARGET) \
+>	$(GAMEPAD_PROBE_TARGET) $(PHASE1_OBJS) \
+>	$(TEST_OBJS) $(AUDIO_PROBE_OBJS) \
+>	$(VGA_PROBE_OBJS) $(GAMEPAD_PROBE_OBJS) \
+>	$(PHASE1_USB_OBJS) \
+>	$(DEPFILES)
 
 rebuild: clean
-	$(MAKE) all
+>$(MAKE) all

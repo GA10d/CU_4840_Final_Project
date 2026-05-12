@@ -107,23 +107,6 @@ static int fighter_fb_image_build_cover(fighter_renderer_t *renderer,
                                         fighter_fb_image_t *scaled);
 
 /*
- * 获取菜单帧 PNG 路径，供非 framebuffer 路径或外部查询使用。
- * 参数：
- *   frame_index：菜单动画帧编号，按奇偶选择两张图。
- */
-const char *fighter_renderer_menu_frame_path(int frame_index) {
-  static const char *const k_menu_frames[2] = {
-      "../game_assets/ui/menu/menu_frame_0.png",
-      "../game_assets/ui/menu/menu_frame_1.png",
-  };
-
-  if ((frame_index & 1) == 0) {
-    return k_menu_frames[0];
-  }
-  return k_menu_frames[1];
-}
-
-/*
  * 获取菜单帧 RGB565 备用路径。
  * 参数：
  *   frame_index：菜单动画帧编号，按奇偶选择两张图。

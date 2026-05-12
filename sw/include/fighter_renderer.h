@@ -92,8 +92,6 @@ const char *fighter_renderer_active_framebuffer_path(
     const fighter_renderer_t *renderer);
 const char *fighter_renderer_status_detail(const fighter_renderer_t *renderer);
 
-const char *fighter_renderer_menu_frame_path(int frame_index);
-
 #ifdef __cplusplus
 }
 #endif

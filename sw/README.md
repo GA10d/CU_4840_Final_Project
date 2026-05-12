@@ -59,7 +59,7 @@
 - `main_phase1_demo.c`
   - 脚本、USB 键盘、gamepad 三种输入模式的主 demo
   - 默认优先输出到 FPGA VGA MMIO / Linux framebuffer，失败时回退到 console
-- `main_audio_demo.c`
+- `main_audio_probe.c`
   - 一个最小音频 bring-up 工具
 - `tests/test_phase1.c`
   - Phase 1 自动测试
@@ -82,7 +82,7 @@ make
 主要可执行文件：
 
 ```bash
-./audio_demo
+./audio_probe
 ./phase1_demo
 ./phase1_test
 ```
@@ -130,7 +130,8 @@ VGA bring-up 可以先跑：
 脚本方式验证 Phase 1：
 
 ```bash
-./audio_demo --track menu_confirm --seconds 2
+./audio_probe
+./phase1_demo --audio --script smoke --console
 ./phase1_test
 ./phase1_demo --script smoke --console
 ./phase1_demo --script ko --console
