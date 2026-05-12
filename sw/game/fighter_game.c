@@ -372,8 +372,7 @@ static void fighter_game_apply_projectile_hit(fighter_game_t *game,
     target->hurt_visual_frames = 0;
     target->block_stun_frames = 0;
     target->combat_result = FIGHTER_COMBAT_RESULT_HIT;
-    target->event_flags |=
-        FIGHTER_PLAYER_EVENT_HIT | FIGHTER_PLAYER_EVENT_KO;
+    target->event_flags |=FIGHTER_PLAYER_EVENT_HIT | FIGHTER_PLAYER_EVENT_KO;
   } else {
     fighter_player_enter_hit(target, profile.hit_stun_frames,
                              FIGHTER_COMBAT_RESULT_HIT);
@@ -1134,8 +1133,7 @@ static void fighter_game_tick_playing(fighter_game_t *game,
     } else if (game->players[1].hp > game->players[0].hp) {
       winner = FIGHTER_WINNER_PLAYER2;
     }
-    fighter_game_enter_game_over(game, winner, FIGHTER_FINISH_REASON_TIME_OUT,
-                                 audio_commands);
+    fighter_game_enter_game_over(game, winner, FIGHTER_FINISH_REASON_TIME_OUT, audio_commands);
   }
 }//对战中每帧逻辑
 

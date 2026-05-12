@@ -40,8 +40,7 @@ int fighter_gamepad_open(fighter_gamepad_t *gamepad, const char *device_path);
 void fighter_gamepad_close(fighter_gamepad_t *gamepad);
 
 // 每帧调用：读取 event 设备，并输出游戏已有的 fighter_player_result_t
-int fighter_gamepad_update(fighter_gamepad_t *gamepad,
-                           fighter_player_result_t *result);
+int fighter_gamepad_update(fighter_gamepad_t *gamepad,fighter_player_result_t *result);
 
 #ifdef __cplusplus
 }
