@@ -126,9 +126,8 @@ def _pack_rgb565(r: int, g: int, b: int) -> int:
 
     red_positioned = red_5_bits << 11
     green_positioned = green_6_bits << 5
-    blue_positioned = blue_5_bits
 
-    rgb565_pixel = red_positioned | green_positioned | blue_positioned
+    rgb565_pixel = red_positioned | green_positioned | blue_5_bits
 
     return rgb565_pixel
 
