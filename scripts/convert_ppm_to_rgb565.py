@@ -18,7 +18,8 @@ File format:
 from pathlib import Path
 
 
-ASSET_ROOT = Path("game_assets")
+REPO_ROOT = Path(__file__).resolve().parents[1]
+ASSET_ROOT = REPO_ROOT / "game_assets"
 RGB565_FILE_SIGNATURE = b"R565"
 RGB565_HEADER_SIZE = 16
 RGB565_PIXEL_FORMAT_LE = 1
