@@ -1,4 +1,0 @@
-CC=cc
-CFLAGS=-std=c11 -Wall -Wextra -Werror -D_POSIX_C_SOURCE=200809L -Iinclude -DFIGHTER_ENABLE_LIBUSB=0
-UNAME_S=Darwin
-UNAME_M=arm64
